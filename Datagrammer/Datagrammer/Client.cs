@@ -71,7 +71,6 @@ namespace Datagrammer
             catch (Exception e)
             {
                 await errorHandler.HandleAsync(e);
-                return;
             }
         }
 
@@ -125,16 +124,19 @@ namespace Datagrammer
                     continue;
                 }
 
+                var processingData = udpReceiveResult.Buffer;
+
                 try
                 {
-                    var processedData = await middleware.ReceiveAsync(udpReceiveResult.Buffer);
-                    await messageHandler.HandleAsync(processedData, udpReceiveResult.RemoteEndPoint);
+                    processingData = await middleware.ReceiveAsync(processingData);
                 }
                 catch (Exception e)
                 {
                     await errorHandler.HandleAsync(e);
                     continue;
                 }
+
+                await messageHandler.HandleAsync(processingData, udpReceiveResult.RemoteEndPoint);
             };
         }
 

@@ -5,9 +5,16 @@ namespace Datagrammer
 {
     public sealed class Bootstrap
     {
-        private readonly ErrorParallelHandlerComposer errorHandlerComposer = new ErrorParallelHandlerComposer();
-        private readonly MessageParallelHandlerComposer messageHandlerComposer = new MessageParallelHandlerComposer();
-        private readonly MiddlewareComposer middlewareComposer = new MiddlewareComposer();
+        private readonly ErrorParallelHandlerComposer errorHandlerComposer;
+        private readonly MessageParallelSafeHandlerComposer messageHandlerComposer;
+        private readonly MiddlewareComposer middlewareComposer;
+
+        public Bootstrap()
+        {
+            errorHandlerComposer = new ErrorParallelHandlerComposer();
+            messageHandlerComposer = new MessageParallelSafeHandlerComposer(errorHandlerComposer);
+            middlewareComposer = new MiddlewareComposer();
+        }
 
         public Bootstrap AddMessageHandler(IMessageHandler handler)
         {
