@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Options;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -20,7 +21,9 @@ namespace Datagrammer
 
         private IMessageClient messageClient;
         private Task[] processingTasks;
-        private bool isStarted;
+        private BlockingCollection<MessageDto> receivedMessages;
+        private CancellationTokenSource messageProcessingCancellation;
+        private volatile bool hasStarted;
 
         public Client(IEnumerable<IErrorHandler> errorHandlers,
                       IEnumerable<IMessageHandler> messageHandlers,
@@ -37,6 +40,8 @@ namespace Datagrammer
 
         public async Task SendAsync(byte[] data, IPEndPoint endPoint)
         {
+            ThrowErrorIfHasNotStarted();
+
             try
             {
                 await SendUnsafeAsync(data, endPoint);
@@ -60,11 +65,6 @@ namespace Datagrammer
             {
                 await HandleErrorAsync(e);
                 return;
-            }
-
-            if (messageClient == null)
-            {
-                throw new InvalidOperationException();
             }
 
             try
@@ -108,7 +108,7 @@ namespace Datagrammer
             lock (synchronization)
             {
                 ThrowErrorIfHasStarted();
-                StartUdpClient();
+                InitializeMessageClient();
                 StartProcessing();
                 MarkAsStarted();
             }
@@ -118,7 +118,7 @@ namespace Datagrammer
 
         private void ThrowErrorIfHasStarted()
         {
-            if(isStarted)
+            if (hasStarted)
             {
                 throw new InvalidOperationException();
             }
@@ -126,48 +126,62 @@ namespace Datagrammer
 
         private void MarkAsStarted()
         {
-            isStarted = true;
+            hasStarted = true;
         }
 
-        private void StartUdpClient()
+        private void InitializeMessageClient()
         {
             messageClient = messageClientCreator.Create(options.Value.ListeningPoint);
         }
 
         private void StartProcessing()
         {
-            processingTasks = new Task[options.Value.ReceivingParallelismDegree];
-            
-            for (int i = 0; i < processingTasks.Length; i++)
+            messageProcessingCancellation = new CancellationTokenSource();
+            receivedMessages = new BlockingCollection<MessageDto>(options.Value.ReceivingParallelismDegree);
+            processingTasks = GetStartedProcessingTasks(options.Value.ReceivingParallelismDegree).ToArray();
+        }
+
+        private IEnumerable<Task> GetStartedProcessingTasks(int parallelismDegree)
+        {
+            yield return ReceiveMessageSafeAsync();
+
+            for(int i = 0; i < parallelismDegree; i++)
             {
-                processingTasks[i] = ProcessSafeAsync();
+                yield return ProcessMessageSafeAsync();
             }
         }
 
-        private async Task ProcessSafeAsync()
+        private async Task ReceiveMessageSafeAsync()
         {
             try
             {
-                await ProcessAsync();
+                await ReceiveMessageAsync();
             }
             catch
             {
                 CloseConnection();
                 throw;
             }
+            finally
+            {
+                StopMessageProcessing();
+            }
         }
 
-        private async Task ProcessAsync()
+        private async Task ReceiveMessageAsync()
         {
             while (true)
             {
-                MessageDto receiveResult;
-
                 try
                 {
-                    receiveResult = await messageClient.ReceiveAsync();
+                    var message = await messageClient.ReceiveAsync();
+                    receivedMessages.Add(message, messageProcessingCancellation.Token);
                 }
                 catch (ObjectDisposedException)
+                {
+                    break;
+                }
+                catch (OperationCanceledException)
                 {
                     break;
                 }
@@ -176,8 +190,41 @@ namespace Datagrammer
                     await HandleErrorAsync(e);
                     continue;
                 }
+            };
+        }
 
-                var processingData = receiveResult.Bytes;
+        private async Task ProcessMessageSafeAsync()
+        {
+            try
+            {
+                await ProcessMessageAsync();
+            }
+            catch
+            {
+                CloseConnection();
+                StopMessageProcessing();
+                throw;
+            }
+        }
+
+        private async Task ProcessMessageAsync()
+        {
+            while (true)
+            {
+                await Task.Yield();
+
+                MessageDto message;
+
+                try
+                {
+                    message = receivedMessages.Take(messageProcessingCancellation.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                var processingData = message.Bytes;
 
                 try
                 {
@@ -189,8 +236,8 @@ namespace Datagrammer
                     continue;
                 }
 
-                await HandleMessageAsync(processingData, receiveResult.EndPoint);
-            };
+                await HandleMessageAsync(processingData, message.EndPoint);
+            }
         }
 
         private async Task<byte[]> ProcessByReceivingPipelineAsync(byte[] data)
@@ -207,11 +254,11 @@ namespace Datagrammer
 
         public async Task HandleMessageAsync(byte[] data, IPEndPoint endPoint)
         {
-            var messageSafeHandlerTasks = messageHandlers.Select(handler => HandleSafeAsync(handler, data, endPoint));
+            var messageSafeHandlerTasks = messageHandlers.Select(handler => HandleMessageSafeAsync(handler, data, endPoint));
             await Task.WhenAll(messageSafeHandlerTasks);
         }
 
-        private async Task HandleSafeAsync(IMessageHandler handler, byte[] data, IPEndPoint endPoint)
+        private async Task HandleMessageSafeAsync(IMessageHandler handler, byte[] data, IPEndPoint endPoint)
         {
             try
             {
@@ -225,29 +272,37 @@ namespace Datagrammer
 
         private void CloseConnection()
         {
-            messageClient?.Dispose();
+            messageClient.Dispose();
+        }
+
+        private void StopMessageProcessing()
+        {
+            messageProcessingCancellation.Cancel();
         }
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
             lock (synchronization)
             {
-                MarkAsNotStarted();
+                ThrowErrorIfHasNotStarted();
                 CloseConnection();
                 WaitProcessingTasks();
             }
-
+            
             return Task.CompletedTask;
+        }
+
+        private void ThrowErrorIfHasNotStarted()
+        {
+            if (!hasStarted)
+            {
+                throw new InvalidOperationException();
+            }
         }
 
         private void WaitProcessingTasks()
         {
             Task.WaitAll(processingTasks);
-        }
-
-        private void MarkAsNotStarted()
-        {
-            isStarted = false;
         }
     }
 }
