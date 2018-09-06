@@ -1,19 +1,28 @@
-﻿using System;
+﻿using Microsoft.Extensions.Options;
+using System;
+using System.Collections.Generic;
 using System.Net;
 
 namespace Datagrammer
 {
     public sealed class Bootstrap
     {
-        private readonly ErrorParallelHandlerComposer errorHandlerComposer;
-        private readonly MessageParallelSafeHandlerComposer messageHandlerComposer;
-        private readonly MiddlewareComposer middlewareComposer;
+        private readonly List<IErrorHandler> errorHandlers;
+        private readonly List<IMessageHandler> messageHandlers;
+        private readonly List<IMiddleware> middlewares;
+        private readonly MessageClientCreator messageClientCreator;
+        private readonly Options options;
 
         public Bootstrap()
         {
-            errorHandlerComposer = new ErrorParallelHandlerComposer();
-            messageHandlerComposer = new MessageParallelSafeHandlerComposer(errorHandlerComposer);
-            middlewareComposer = new MiddlewareComposer();
+            errorHandlers = new List<IErrorHandler>();
+            messageHandlers = new List<IMessageHandler>();
+            middlewares = new List<IMiddleware>();
+            messageClientCreator = new MessageClientCreator();
+            options = new Options
+            {
+                ReceivingParallelismDegree = 1
+            };
         }
 
         public Bootstrap AddMessageHandler(IMessageHandler handler)
@@ -23,7 +32,7 @@ namespace Datagrammer
                 throw new ArgumentNullException(nameof(handler));
             }
 
-            messageHandlerComposer.AddHandler(handler);
+            messageHandlers.Add(handler);
             return this;
         }
 
@@ -34,7 +43,7 @@ namespace Datagrammer
                 throw new ArgumentNullException(nameof(handler));
             }
 
-            errorHandlerComposer.AddHandler(handler);
+            errorHandlers.Add(handler);
             return this;
         }
 
@@ -45,21 +54,30 @@ namespace Datagrammer
                 throw new ArgumentNullException(nameof(middleware));
             }
 
-            middlewareComposer.AddMiddleware(middleware);
+            middlewares.Add(middleware);
             return this;
         }
 
-        public IClient Create(IPEndPoint udpListeningPoint)
+        public Bootstrap SetReceivingParallelismDegree(int degree)
         {
-            if(udpListeningPoint == null)
+            if(degree <= 0)
             {
-                throw new ArgumentNullException(nameof(udpListeningPoint));
+                throw new ArgumentOutOfRangeException(nameof(degree));
             }
 
-            return new Client(errorHandlerComposer,
-                              messageHandlerComposer,
-                              middlewareComposer,
-                              udpListeningPoint);
+            options.ReceivingParallelismDegree = degree;
+            return this;
+        }
+
+        public IClient Create(IPEndPoint listeningPoint)
+        {
+            options.ListeningPoint = listeningPoint ?? throw new ArgumentNullException(nameof(listeningPoint));
+
+            return new Client(errorHandlers,
+                              messageHandlers,
+                              middlewares,
+                              messageClientCreator,
+                              new OptionsWrapper<Options>(options));
         }
     }
 }

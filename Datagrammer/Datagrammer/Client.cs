@@ -1,6 +1,8 @@
-﻿using System;
+﻿using Microsoft.Extensions.Options;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -8,24 +10,29 @@ namespace Datagrammer
 {
     internal class Client : IClient
     {
-        private readonly IErrorHandler errorHandler;
-        private readonly IMessageHandler messageHandler;
-        private readonly IMiddleware middleware;
+        private readonly object synchronization = new object();
 
-        private readonly IPEndPoint udpListeningPoint;
+        private readonly IEnumerable<IErrorHandler> errorHandlers;
+        private readonly IEnumerable<IMessageHandler> messageHandlers;
+        private readonly IEnumerable<IMiddleware> middlewares;
+        private readonly IMessageClientCreator messageClientCreator;
+        private readonly IOptions<Options> options;
 
-        private UdpClient udpClient;
-        private Task processingTask;
+        private IMessageClient messageClient;
+        private Task[] processingTasks;
+        private bool isStarted;
 
-        public Client(IErrorHandler errorHandler,
-                      IMessageHandler messageHandler,
-                      IMiddleware middleware,
-                      IPEndPoint udpListeningPoint)
+        public Client(IEnumerable<IErrorHandler> errorHandlers,
+                      IEnumerable<IMessageHandler> messageHandlers,
+                      IEnumerable<IMiddleware> middlewares,
+                      IMessageClientCreator messageClientCreator,
+                      IOptions<Options> options)
         {
-            this.errorHandler = errorHandler;
-            this.messageHandler = messageHandler;
-            this.middleware = middleware;
-            this.udpListeningPoint = udpListeningPoint;
+            this.errorHandlers = errorHandlers;
+            this.messageHandlers = messageHandlers;
+            this.middlewares = middlewares;
+            this.messageClientCreator = messageClientCreator;
+            this.options = options;
         }
 
         public async Task SendAsync(byte[] data, IPEndPoint endPoint)
@@ -36,7 +43,7 @@ namespace Datagrammer
             }
             catch
             {
-                udpClient?.Close();
+                CloseConnection();
                 throw;
             }
         }
@@ -47,48 +54,94 @@ namespace Datagrammer
 
             try
             {
-                dataToSend = await middleware.SendAsync(dataToSend);
+                dataToSend = await ProcessBySendingPipelineAsync(dataToSend);
             }
             catch (Exception e)
             {
-                await errorHandler.HandleAsync(e);
+                await HandleErrorAsync(e);
                 return;
             }
 
-            if (udpClient == null)
+            if (messageClient == null)
             {
                 throw new InvalidOperationException();
             }
 
             try
             {
-                await udpClient.SendAsync(dataToSend, dataToSend.Length, endPoint);
+                await messageClient.SendAsync(new MessageDto
+                {
+                    EndPoint = endPoint,
+                    Bytes = dataToSend
+                });
             }
             catch (ObjectDisposedException)
             {
-                throw new InvalidOperationException();
+                throw;
             }
             catch (Exception e)
             {
-                await errorHandler.HandleAsync(e);
+                await HandleErrorAsync(e);
             }
+        }
+
+        private async Task<byte[]> ProcessBySendingPipelineAsync(byte[] data)
+        {
+            var processingData = data;
+
+            foreach (var middleware in middlewares)
+            {
+                processingData = await middleware.SendAsync(processingData);
+            }
+
+            return processingData;
+        }
+
+        private async Task HandleErrorAsync(Exception e)
+        {
+            var handlerTasks = errorHandlers.Select(handler => handler.HandleAsync(e));
+            await Task.WhenAll(handlerTasks);
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            StartUdpClient();
-            StartProcessing();
+            lock (synchronization)
+            {
+                ThrowErrorIfHasStarted();
+                StartUdpClient();
+                StartProcessing();
+                MarkAsStarted();
+            }
+
             return Task.CompletedTask;
+        }
+
+        private void ThrowErrorIfHasStarted()
+        {
+            if(isStarted)
+            {
+                throw new InvalidOperationException();
+            }
+        }
+
+        private void MarkAsStarted()
+        {
+            isStarted = true;
         }
 
         private void StartUdpClient()
         {
-            udpClient = new UdpClient(udpListeningPoint);
+            messageClient = messageClientCreator.Create(options.Value.ListeningPoint);
         }
 
         private void StartProcessing()
         {
-            processingTask = ProcessSafeAsync();
+            processingTasks = new Task[options.Value.ReceivingParallelismDegree];
+            
+            for (int i = 0; i < processingTasks.Length; i++)
+            {
+                processingTasks[i] = ProcessSafeAsync();
+            }
         }
 
         private async Task ProcessSafeAsync()
@@ -99,7 +152,7 @@ namespace Datagrammer
             }
             catch
             {
-                udpClient.Close();
+                CloseConnection();
                 throw;
             }
         }
@@ -108,11 +161,11 @@ namespace Datagrammer
         {
             while (true)
             {
-                UdpReceiveResult udpReceiveResult;
+                MessageDto receiveResult;
 
                 try
                 {
-                    udpReceiveResult = await udpClient.ReceiveAsync();
+                    receiveResult = await messageClient.ReceiveAsync();
                 }
                 catch (ObjectDisposedException)
                 {
@@ -120,34 +173,81 @@ namespace Datagrammer
                 }
                 catch (Exception e)
                 {
-                    await errorHandler.HandleAsync(e);
+                    await HandleErrorAsync(e);
                     continue;
                 }
 
-                var processingData = udpReceiveResult.Buffer;
+                var processingData = receiveResult.Bytes;
 
                 try
                 {
-                    processingData = await middleware.ReceiveAsync(processingData);
+                    processingData = await ProcessByReceivingPipelineAsync(processingData);
                 }
                 catch (Exception e)
                 {
-                    await errorHandler.HandleAsync(e);
+                    await HandleErrorAsync(e);
                     continue;
                 }
 
-                await messageHandler.HandleAsync(processingData, udpReceiveResult.RemoteEndPoint);
+                await HandleMessageAsync(processingData, receiveResult.EndPoint);
             };
         }
 
-        public async Task StopAsync(CancellationToken cancellationToken)
+        private async Task<byte[]> ProcessByReceivingPipelineAsync(byte[] data)
         {
-            udpClient?.Close();
-            
-            if(processingTask != null)
+            var processingData = data;
+
+            foreach (var middleware in middlewares.Reverse())
             {
-                await processingTask;
+                processingData = await middleware.ReceiveAsync(processingData);
             }
+
+            return processingData;
+        }
+
+        public async Task HandleMessageAsync(byte[] data, IPEndPoint endPoint)
+        {
+            var messageSafeHandlerTasks = messageHandlers.Select(handler => HandleSafeAsync(handler, data, endPoint));
+            await Task.WhenAll(messageSafeHandlerTasks);
+        }
+
+        private async Task HandleSafeAsync(IMessageHandler handler, byte[] data, IPEndPoint endPoint)
+        {
+            try
+            {
+                await handler.HandleAsync(data, endPoint);
+            }
+            catch (Exception e)
+            {
+                await HandleErrorAsync(e);
+            }
+        }
+
+        private void CloseConnection()
+        {
+            messageClient?.Dispose();
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            lock (synchronization)
+            {
+                MarkAsNotStarted();
+                CloseConnection();
+                WaitProcessingTasks();
+            }
+
+            return Task.CompletedTask;
+        }
+
+        private void WaitProcessingTasks()
+        {
+            Task.WaitAll(processingTasks);
+        }
+
+        private void MarkAsNotStarted()
+        {
+            isStarted = false;
         }
     }
 }
