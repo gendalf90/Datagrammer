@@ -3,48 +3,47 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Datagrammer
 {
-    internal class Client : IClient
+    internal class DatagramClient : IDatagramClient
     {
         private readonly object synchronization = new object();
 
         private readonly IEnumerable<IErrorHandler> errorHandlers;
         private readonly IEnumerable<IMessageHandler> messageHandlers;
         private readonly IEnumerable<IMiddleware> middlewares;
-        private readonly IMessageClientCreator messageClientCreator;
-        private readonly IOptions<Options> options;
+        private readonly IProtocolCreator protocolCreator;
+        private readonly IOptions<DatagramOptions> options;
 
-        private IMessageClient messageClient;
+        private IProtocol protocol;
         private Task[] processingTasks;
-        private BlockingCollection<MessageDto> receivedMessages;
+        private BlockingCollection<Datagram> receivedMessages;
         private CancellationTokenSource messageProcessingCancellation;
         private volatile bool hasStarted;
 
-        public Client(IEnumerable<IErrorHandler> errorHandlers,
-                      IEnumerable<IMessageHandler> messageHandlers,
-                      IEnumerable<IMiddleware> middlewares,
-                      IMessageClientCreator messageClientCreator,
-                      IOptions<Options> options)
+        public DatagramClient(IEnumerable<IErrorHandler> errorHandlers,
+                              IEnumerable<IMessageHandler> messageHandlers,
+                              IEnumerable<IMiddleware> middlewares,
+                              IProtocolCreator protocolCreator,
+                              IOptions<DatagramOptions> options)
         {
             this.errorHandlers = errorHandlers;
             this.messageHandlers = messageHandlers;
             this.middlewares = middlewares;
-            this.messageClientCreator = messageClientCreator;
+            this.protocolCreator = protocolCreator;
             this.options = options;
         }
 
-        public async Task SendAsync(byte[] data, IPEndPoint endPoint)
+        public async Task SendAsync(Datagram message)
         {
             ThrowErrorIfHasNotStarted();
 
             try
             {
-                await SendUnsafeAsync(data, endPoint);
+                await SendUnsafeAsync(message);
             }
             catch
             {
@@ -53,13 +52,11 @@ namespace Datagrammer
             }
         }
 
-        private async Task SendUnsafeAsync(byte[] data, IPEndPoint endPoint)
+        private async Task SendUnsafeAsync(Datagram message)
         {
-            byte[] dataToSend = data;
-
             try
             {
-                dataToSend = await ProcessBySendingPipelineAsync(dataToSend);
+                await ProcessBySendingPipelineAsync(message);
             }
             catch (Exception e)
             {
@@ -69,11 +66,7 @@ namespace Datagrammer
 
             try
             {
-                await messageClient.SendAsync(new MessageDto
-                {
-                    EndPoint = endPoint,
-                    Bytes = dataToSend
-                });
+                await protocol.SendAsync(message);
             }
             catch (ObjectDisposedException)
             {
@@ -85,16 +78,12 @@ namespace Datagrammer
             }
         }
 
-        private async Task<byte[]> ProcessBySendingPipelineAsync(byte[] data)
+        private async Task ProcessBySendingPipelineAsync(Datagram message)
         {
-            var processingData = data;
-
             foreach (var middleware in middlewares)
             {
-                processingData = await middleware.SendAsync(processingData);
+                message.Bytes = await middleware.SendAsync(message.Bytes);
             }
-
-            return processingData;
         }
 
         private async Task HandleErrorAsync(Exception e)
@@ -108,7 +97,7 @@ namespace Datagrammer
             lock (synchronization)
             {
                 ThrowErrorIfHasStarted();
-                InitializeMessageClient();
+                InitializeProtocol();
                 StartProcessing();
                 MarkAsStarted();
             }
@@ -129,15 +118,15 @@ namespace Datagrammer
             hasStarted = true;
         }
 
-        private void InitializeMessageClient()
+        private void InitializeProtocol()
         {
-            messageClient = messageClientCreator.Create(options.Value.ListeningPoint);
+            protocol = protocolCreator.Create();
         }
 
         private void StartProcessing()
         {
             messageProcessingCancellation = new CancellationTokenSource();
-            receivedMessages = new BlockingCollection<MessageDto>(options.Value.ReceivingParallelismDegree);
+            receivedMessages = new BlockingCollection<Datagram>(options.Value.ReceivingParallelismDegree);
             processingTasks = GetStartedProcessingTasks(options.Value.ReceivingParallelismDegree).ToArray();
         }
 
@@ -174,7 +163,7 @@ namespace Datagrammer
             {
                 try
                 {
-                    var message = await messageClient.ReceiveAsync();
+                    var message = await protocol.ReceiveAsync();
                     receivedMessages.Add(message, messageProcessingCancellation.Token);
                 }
                 catch (ObjectDisposedException)
@@ -213,7 +202,7 @@ namespace Datagrammer
             {
                 await Task.Yield();
 
-                MessageDto message;
+                Datagram message;
 
                 try
                 {
@@ -224,11 +213,9 @@ namespace Datagrammer
                     break;
                 }
 
-                var processingData = message.Bytes;
-
                 try
                 {
-                    processingData = await ProcessByReceivingPipelineAsync(processingData);
+                    await ProcessByReceivingPipelineAsync(message);
                 }
                 catch (Exception e)
                 {
@@ -236,33 +223,29 @@ namespace Datagrammer
                     continue;
                 }
 
-                await HandleMessageAsync(processingData, message.EndPoint);
+                await HandleMessageAsync(message);
             }
         }
 
-        private async Task<byte[]> ProcessByReceivingPipelineAsync(byte[] data)
+        private async Task ProcessByReceivingPipelineAsync(Datagram message)
         {
-            var processingData = data;
-
             foreach (var middleware in middlewares.Reverse())
             {
-                processingData = await middleware.ReceiveAsync(processingData);
+                message.Bytes = await middleware.ReceiveAsync(message.Bytes);
             }
-
-            return processingData;
         }
 
-        public async Task HandleMessageAsync(byte[] data, IPEndPoint endPoint)
+        public async Task HandleMessageAsync(Datagram message)
         {
-            var messageSafeHandlerTasks = messageHandlers.Select(handler => HandleMessageSafeAsync(handler, data, endPoint));
+            var messageSafeHandlerTasks = messageHandlers.Select(handler => HandleMessageSafeAsync(handler, message));
             await Task.WhenAll(messageSafeHandlerTasks);
         }
 
-        private async Task HandleMessageSafeAsync(IMessageHandler handler, byte[] data, IPEndPoint endPoint)
+        private async Task HandleMessageSafeAsync(IMessageHandler handler, Datagram message)
         {
             try
             {
-                await handler.HandleAsync(data, endPoint);
+                await handler.HandleAsync(message);
             }
             catch (Exception e)
             {
@@ -272,7 +255,7 @@ namespace Datagrammer
 
         private void CloseConnection()
         {
-            messageClient.Dispose();
+            protocol.Dispose();
         }
 
         private void StopMessageProcessing()

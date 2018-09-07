@@ -3,8 +3,8 @@ using System.Threading.Tasks;
 
 namespace Datagrammer
 {
-    public interface ISender
+    public interface IDatagramSender
     {
-        Task SendAsync(byte[] data, IPEndPoint endPoint);
+        Task SendAsync(Datagram message);
     }
 }

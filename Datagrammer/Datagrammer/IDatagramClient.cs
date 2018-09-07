@@ -2,7 +2,7 @@
 
 namespace Datagrammer
 {
-    public interface IClient : ISender, IHostedService
+    public interface IDatagramClient : IDatagramSender, IHostedService
     {
     }
 }

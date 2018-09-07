@@ -2,7 +2,7 @@
 
 namespace Datagrammer
 {
-    internal class MessageDto
+    public sealed class Datagram
     {
         public IPEndPoint EndPoint { get; set; }
 

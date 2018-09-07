@@ -3,27 +3,27 @@ using System.Threading.Tasks;
 
 namespace Datagrammer
 {
-    internal class MessageClient : IMessageClient
+    internal class Protocol : IProtocol
     {
         private readonly UdpClient udpClient;
 
-        public MessageClient(UdpClient udpClient)
+        public Protocol(UdpClient udpClient)
         {
             this.udpClient = udpClient;
         }
 
-        public async Task<MessageDto> ReceiveAsync()
+        public async Task<Datagram> ReceiveAsync()
         {
             var data = await udpClient.ReceiveAsync();
 
-            return new MessageDto
+            return new Datagram
             {
                 EndPoint = data.RemoteEndPoint,
                 Bytes = data.Buffer
             };
         }
 
-        public async Task SendAsync(MessageDto data)
+        public async Task SendAsync(Datagram data)
         {
             await udpClient.SendAsync(data.Bytes, data.Bytes.Length, data.EndPoint);
         }
