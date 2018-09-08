@@ -2,6 +2,8 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Datagrammer
 {
@@ -9,15 +11,22 @@ namespace Datagrammer
     {
         public static IServiceCollection AddHostedDatagrammer(this IServiceCollection services)
         {
-            return services.AddSingleton(CreateDatagramClient)
-                           .AddSingleton(GetDatagramSender)
-                           .AddSingleton(GetDatagramHostedService);
+            return services.AddDatagrammer()
+                           .AddSingleton(GetDatagramHostedServiceProxy);
+        }
+
+        public static IServiceCollection AddDatagrammer(this IServiceCollection services)
+        {
+            return services.AddSingleton(GetDatagramClientProxy)
+                           .AddSingleton(GetDatagramSenderProxy)
+                           .AddSingleton(CreateDatagramClient);
         }
 
         public static IDatagramClient BuildDatagramClient(this IServiceCollection services)
         {
-            var provider = services.BuildServiceProvider(true);
-            return CreateDatagramClient(provider);
+            return services.AddDatagrammer()
+                           .BuildServiceProvider()
+                           .GetService<IDatagramClient>();
         }
 
         private static IDatagramClient CreateDatagramClient(IServiceProvider provider)
@@ -46,14 +55,44 @@ namespace Datagrammer
                                       options);
         }
 
-        private static IDatagramSender GetDatagramSender(IServiceProvider provider)
+        private static IDatagramClient GetDatagramClientProxy(IServiceProvider provider)
         {
-            return provider.GetService<IDatagramClient>();
+            return new DatagramClientProxy(provider);
         }
 
-        private static IHostedService GetDatagramHostedService(IServiceProvider provider)
+        private static IDatagramSender GetDatagramSenderProxy(IServiceProvider provider)
         {
-            return provider.GetService<IDatagramClient>();
+            return new DatagramClientProxy(provider);
+        }
+
+        private static IHostedService GetDatagramHostedServiceProxy(IServiceProvider provider)
+        {
+            return new DatagramClientProxy(provider);
+        }
+
+        private class DatagramClientProxy : IDatagramClient
+        {
+            private readonly Lazy<IDatagramClient> client;
+
+            public DatagramClientProxy(IServiceProvider provider)
+            {
+                client = new Lazy<IDatagramClient>(provider.GetService<IDatagramClient>, LazyThreadSafetyMode.PublicationOnly);
+            }
+
+            public Task SendAsync(Datagram message)
+            {
+                return client.Value.SendAsync(message);
+            }
+
+            public Task StartAsync(CancellationToken cancellationToken)
+            {
+                return client.Value.StartAsync(cancellationToken);
+            }
+
+            public Task StopAsync(CancellationToken cancellationToken)
+            {
+                return client.Value.StopAsync(cancellationToken);
+            }
         }
     }
 }
