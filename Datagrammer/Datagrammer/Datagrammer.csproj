@@ -6,8 +6,9 @@
     <Authors>Roman Boykov</Authors>
     <Description>Lightweight asynchronous extensible udp client</Description>
     <PackageProjectUrl>https://github.com/gendalf90/Datagrammer</PackageProjectUrl>
-    <PackageTags>udp client datagram</PackageTags>
+    <PackageTags>udp client datagram datagrammer</PackageTags>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <RepositoryUrl>https://github.com/gendalf90/Datagrammer</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
