@@ -11,8 +11,9 @@ namespace Datagrammer
     {
         public static IServiceCollection AddHostedDatagrammer(this IServiceCollection services)
         {
-            return services.AddDatagrammer()
-                           .AddSingleton(GetDatagramHostedServiceProxy);
+            return services.AddSingleton(GetDatagramHostedServiceProxy)
+                           .AddDatagrammer();
+                           
         }
 
         public static IServiceCollection AddDatagrammer(this IServiceCollection services)
