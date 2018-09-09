@@ -120,7 +120,7 @@ namespace Datagrammer
 
         private void InitializeProtocol()
         {
-            protocol = protocolCreator.Create();
+            protocol = protocolCreator.Create(options.Value.ListeningPoint);
         }
 
         private void StartProcessing()

@@ -1,21 +1,13 @@
-﻿using Microsoft.Extensions.Options;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 
 namespace Datagrammer
 {
     internal class ProtocolCreator : IProtocolCreator
     {
-        private readonly IOptions<DatagramOptions> options;
-
-        public ProtocolCreator(IOptions<DatagramOptions> options)
+        public IProtocol Create(IPEndPoint listeningPoint)
         {
-            this.options = options;
-        }
-
-        public IProtocol Create()
-        {
-            var udpClient = new UdpClient(options.Value.ListeningPoint);
+            var udpClient = new UdpClient(listeningPoint);
             return new Protocol(udpClient);
         }
     }

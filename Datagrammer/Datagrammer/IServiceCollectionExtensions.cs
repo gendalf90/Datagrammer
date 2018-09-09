@@ -13,7 +13,6 @@ namespace Datagrammer
         {
             return services.AddSingleton(GetDatagramHostedServiceProxy)
                            .AddDatagrammer();
-                           
         }
 
         public static IServiceCollection AddDatagrammer(this IServiceCollection services)
@@ -23,37 +22,73 @@ namespace Datagrammer
                            .AddSingleton(CreateDatagramClient);
         }
 
-        public static IDatagramClient BuildDatagramClient(this IServiceCollection services)
-        {
-            return services.AddDatagrammer()
-                           .BuildServiceProvider()
-                           .GetService<IDatagramClient>();
-        }
-
         private static IDatagramClient CreateDatagramClient(IServiceProvider provider)
         {
+            var bootstrap = new Bootstrap();
+            FillMessageHandlers(provider, bootstrap);
+            FillErrorHandlers(provider, bootstrap);
+            FillMiddlewares(provider, bootstrap);
+            ConfigureIfNeeded(provider, bootstrap);
+            SetCustomProtocolIfNeeded(provider, bootstrap);
+            return bootstrap.Build();
+        }
+
+        private static void FillMessageHandlers(IServiceProvider provider, Bootstrap bootstrap)
+        {
             var messageHandlers = provider.GetServices<IMessageHandler>();
+
+            foreach (var handler in messageHandlers)
+            {
+                bootstrap.AddMessageHandler(handler);
+            }
+        }
+
+        private static void FillErrorHandlers(IServiceProvider provider, Bootstrap bootstrap)
+        {
             var errorHandlers = provider.GetServices<IErrorHandler>();
+
+            foreach (var handler in errorHandlers)
+            {
+                bootstrap.AddErrorHandler(handler);
+            }
+        }
+
+        private static void FillMiddlewares(IServiceProvider provider, Bootstrap bootstrap)
+        {
             var middlewares = provider.GetServices<IMiddleware>();
-            var options = provider.GetService<IOptions<DatagramOptions>>() ?? new OptionsWrapper<DatagramOptions>(new DatagramOptions());
 
-            if(options.Value.ReceivingParallelismDegree <= 0)
+            foreach (var middleware in middlewares)
             {
-                throw new ArgumentOutOfRangeException(nameof(options.Value.ReceivingParallelismDegree));
+                bootstrap.AddMiddleware(middleware);
+            }
+        }
+
+        private static void ConfigureIfNeeded(IServiceProvider provider, Bootstrap bootstrap)
+        {
+            var options = provider.GetService<IOptions<DatagramOptions>>();
+
+            if(options == null)
+            {
+                return;
             }
 
-            if(options.Value.ListeningPoint == null)
+            bootstrap.Configure(datagramOptions =>
             {
-                throw new ArgumentNullException(nameof(options.Value.ListeningPoint));
+                datagramOptions.ListeningPoint = options.Value.ListeningPoint;
+                datagramOptions.ReceivingParallelismDegree = options.Value.ReceivingParallelismDegree;
+            });
+        }
+
+        private static void SetCustomProtocolIfNeeded(IServiceProvider provider, Bootstrap bootstrap)
+        {
+            var protocolCreator = provider.GetService<IProtocolCreator>();
+
+            if(protocolCreator == null)
+            {
+                return;
             }
 
-            var protocolCreator = provider.GetService<IProtocolCreator>() ?? new ProtocolCreator(options);
-
-            return new DatagramClient(errorHandlers,
-                                      messageHandlers,
-                                      middlewares,
-                                      protocolCreator,
-                                      options);
+            bootstrap.UseCustomProtocol(protocolCreator);
         }
 
         private static IDatagramClient GetDatagramClientProxy(IServiceProvider provider)

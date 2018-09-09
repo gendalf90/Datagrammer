@@ -1,7 +1,9 @@
-﻿namespace Datagrammer
+﻿using System.Net;
+
+namespace Datagrammer
 {
     public interface IProtocolCreator
     {
-        IProtocol Create();
+        IProtocol Create(IPEndPoint listeningPoint);
     }
 }

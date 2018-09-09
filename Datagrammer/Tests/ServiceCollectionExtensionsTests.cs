@@ -20,13 +20,5 @@ namespace Tests
             Assert.NotNull(sender);
             Assert.NotNull(hostedService);
         }
-
-        [Fact]
-        public void BuildInstance_WithoutCustomServices_NotNull()
-        {
-            var client = new ServiceCollection().BuildDatagramClient();
-
-            Assert.NotNull(client);
-        }
     }
 }
