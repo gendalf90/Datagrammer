@@ -54,25 +54,14 @@ namespace Datagrammer
             return this;
         }
 
-        public Bootstrap Configure(Action<DatagramOptions> configure)
+        public Bootstrap Configure(Action<DatagramOptions> action)
         {
-            if (configure == null)
+            if (action == null)
             {
-                throw new ArgumentNullException(nameof(configure));
+                throw new ArgumentNullException(nameof(action));
             }
 
-            configure(options.Value);
-
-            if(options.Value.ListeningPoint == null)
-            {
-                throw new ArgumentNullException(nameof(options.Value.ListeningPoint));
-            }
-
-            if(options.Value.ReceivingParallelismDegree <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(options.Value.ReceivingParallelismDegree));
-            }
-
+            action(options.Value);
             return this;
         }
 
@@ -84,11 +73,13 @@ namespace Datagrammer
 
         public IDatagramClient Build()
         {
-            return new DatagramClient(errorHandlers,
-                                      messageHandlers,
-                                      middlewares,
-                                      protocolCreator,
-                                      options);
+            var client = new DatagramClient(errorHandlers,
+                                            messageHandlers,
+                                            middlewares,
+                                            protocolCreator,
+                                            options);
+            client.Start();
+            return client;
         }
     }
 }

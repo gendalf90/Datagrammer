@@ -5,6 +5,6 @@ namespace Datagrammer
 {
     public interface IErrorHandler
     {
-        Task HandleAsync(Exception e);
+        Task HandleAsync(IContext context, Exception e);
     }
 }

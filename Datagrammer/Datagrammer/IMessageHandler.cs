@@ -4,6 +4,6 @@ namespace Datagrammer
 {
     public interface IMessageHandler
     {
-        Task HandleAsync(Datagram message);
+        Task HandleAsync(IContext context, Datagram message);
     }
 }

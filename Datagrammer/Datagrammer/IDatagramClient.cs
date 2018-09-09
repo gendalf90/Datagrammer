@@ -1,8 +1,9 @@
-﻿using Microsoft.Extensions.Hosting;
+﻿using System;
 
 namespace Datagrammer
 {
-    public interface IDatagramClient : IDatagramSender, IHostedService
+    public interface IDatagramClient : IDatagramSender, IDisposable
     {
+        void Stop();
     }
 }

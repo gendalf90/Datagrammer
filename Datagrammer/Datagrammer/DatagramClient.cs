@@ -88,21 +88,21 @@ namespace Datagrammer
 
         private async Task HandleErrorAsync(Exception e)
         {
-            var handlerTasks = errorHandlers.Select(handler => handler.HandleAsync(e));
+            var context = CreateContext();
+            var handlerTasks = errorHandlers.Select(handler => handler.HandleAsync(context, e));
             await Task.WhenAll(handlerTasks);
         }
 
-        public Task StartAsync(CancellationToken cancellationToken)
+        public void Start()
         {
             lock (synchronization)
             {
                 ThrowErrorIfHasStarted();
+                ValidateOptions();
                 InitializeProtocol();
                 StartProcessing();
                 MarkAsStarted();
             }
-
-            return Task.CompletedTask;
         }
 
         private void ThrowErrorIfHasStarted()
@@ -113,6 +113,19 @@ namespace Datagrammer
             }
         }
 
+        private void ValidateOptions()
+        {
+            if (options.Value.ListeningPoint == null)
+            {
+                throw new ArgumentNullException(nameof(options.Value.ListeningPoint));
+            }
+
+            if (options.Value.ReceivingParallelismDegree <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(options.Value.ReceivingParallelismDegree));
+            }
+        }
+
         private void MarkAsStarted()
         {
             hasStarted = true;
@@ -120,7 +133,7 @@ namespace Datagrammer
 
         private void InitializeProtocol()
         {
-            protocol = protocolCreator.Create(options.Value.ListeningPoint);
+            protocol = protocolCreator.Create(options.Value.ListeningPoint) ?? throw new ArgumentNullException(nameof(protocol));
         }
 
         private void StartProcessing()
@@ -245,7 +258,8 @@ namespace Datagrammer
         {
             try
             {
-                await handler.HandleAsync(message);
+                var context = CreateContext();
+                await handler.HandleAsync(context, message);
             }
             catch (Exception e)
             {
@@ -253,9 +267,14 @@ namespace Datagrammer
             }
         }
 
+        private IContext CreateContext()
+        {
+            return new Context(this);
+        }
+
         private void CloseConnection()
         {
-            protocol.Dispose();
+            protocol?.Dispose();
         }
 
         private void StopMessageProcessing()
@@ -263,7 +282,15 @@ namespace Datagrammer
             messageProcessingCancellation.Cancel();
         }
 
-        public Task StopAsync(CancellationToken cancellationToken)
+        public void Dispose()
+        {
+            lock (synchronization)
+            {
+                CloseConnection();
+            }
+        }
+
+        public void Stop()
         {
             lock (synchronization)
             {
@@ -271,8 +298,6 @@ namespace Datagrammer
                 CloseConnection();
                 WaitProcessingTasks();
             }
-            
-            return Task.CompletedTask;
         }
 
         private void ThrowErrorIfHasNotStarted()
