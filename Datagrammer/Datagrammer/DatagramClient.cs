@@ -1,9 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace Datagrammer
@@ -19,9 +17,7 @@ namespace Datagrammer
         private readonly IOptions<DatagramOptions> options;
 
         private IProtocol protocol;
-        private Task[] processingTasks;
-        private BlockingCollection<Datagram> receivedMessages;
-        private CancellationTokenSource messageProcessingCancellation;
+        private Task processingTask;
         private volatile bool hasStarted;
 
         public DatagramClient(IEnumerable<IErrorHandler> errorHandlers,
@@ -119,11 +115,6 @@ namespace Datagrammer
             {
                 throw new ArgumentNullException(nameof(options.Value.ListeningPoint));
             }
-
-            if (options.Value.ReceivingParallelismDegree <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(options.Value.ReceivingParallelismDegree));
-            }
         }
 
         private void MarkAsStarted()
@@ -138,19 +129,7 @@ namespace Datagrammer
 
         private void StartProcessing()
         {
-            messageProcessingCancellation = new CancellationTokenSource();
-            receivedMessages = new BlockingCollection<Datagram>(options.Value.ReceivingParallelismDegree);
-            processingTasks = GetStartedProcessingTasks(options.Value.ReceivingParallelismDegree).ToArray();
-        }
-
-        private IEnumerable<Task> GetStartedProcessingTasks(int parallelismDegree)
-        {
-            yield return ReceiveMessageSafeAsync();
-
-            for(int i = 0; i < parallelismDegree; i++)
-            {
-                yield return ProcessMessageSafeAsync();
-            }
+            processingTask = ReceiveMessageSafeAsync();
         }
 
         private async Task ReceiveMessageSafeAsync()
@@ -164,26 +143,19 @@ namespace Datagrammer
                 CloseConnection();
                 throw;
             }
-            finally
-            {
-                StopMessageProcessing();
-            }
         }
 
         private async Task ReceiveMessageAsync()
         {
             while (true)
             {
+                Datagram message;
+
                 try
                 {
-                    var message = await protocol.ReceiveAsync();
-                    receivedMessages.Add(message, messageProcessingCancellation.Token);
+                    message = await protocol.ReceiveAsync();
                 }
                 catch (ObjectDisposedException)
-                {
-                    break;
-                }
-                catch (OperationCanceledException)
                 {
                     break;
                 }
@@ -191,39 +163,6 @@ namespace Datagrammer
                 {
                     await HandleErrorAsync(e);
                     continue;
-                }
-            };
-        }
-
-        private async Task ProcessMessageSafeAsync()
-        {
-            try
-            {
-                await ProcessMessageAsync();
-            }
-            catch
-            {
-                CloseConnection();
-                StopMessageProcessing();
-                throw;
-            }
-        }
-
-        private async Task ProcessMessageAsync()
-        {
-            while (true)
-            {
-                await Task.Yield();
-
-                Datagram message;
-
-                try
-                {
-                    message = receivedMessages.Take(messageProcessingCancellation.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
                 }
 
                 try
@@ -237,7 +176,7 @@ namespace Datagrammer
                 }
 
                 await HandleMessageAsync(message);
-            }
+            };
         }
 
         private async Task ProcessByReceivingPipelineAsync(Datagram message)
@@ -277,11 +216,6 @@ namespace Datagrammer
             protocol?.Dispose();
         }
 
-        private void StopMessageProcessing()
-        {
-            messageProcessingCancellation.Cancel();
-        }
-
         public void Dispose()
         {
             lock (synchronization)
@@ -296,7 +230,7 @@ namespace Datagrammer
             {
                 ThrowErrorIfHasNotStarted();
                 CloseConnection();
-                WaitProcessingTasks();
+                WaitProcessingTask();
             }
         }
 
@@ -308,9 +242,9 @@ namespace Datagrammer
             }
         }
 
-        private void WaitProcessingTasks()
+        private void WaitProcessingTask()
         {
-            Task.WaitAll(processingTasks);
+            processingTask.Wait();
         }
     }
 }
