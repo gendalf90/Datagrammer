@@ -79,3 +79,119 @@ await client.SendAsync(new Datagram
 ```
 
 ### Receiving
+
+Use `IMessageHandler` interface for message handling
+
+```csharp
+class MyHandler : IMessageHandler
+{
+    public Task HandleAsync(IContext context, Datagram message)
+    {
+        throw new NotImplementedException();
+    }
+}
+```
+
+and register it in `Bootstrap`
+
+```csharp
+var client = new Bootstrap().AddMessageHandler(new MyHandler()).Build();
+```
+
+or in `ServiceCollection`
+
+```csharp
+var services = new ServiceCollection().AddSingleton<IMessageHandler, MyHandler>().AddDatagrammer();
+```
+
+### Error handling
+
+Use `IErrorHandler` interface for it
+
+```csharp
+class MyHandler : IErrorHandler
+{
+    public Task HandleAsync(IContext context, Exception e)
+    {
+        throw new NotImplementedException();
+    }
+}
+```
+
+and register it in `Bootstrap`
+
+```csharp
+var client = new Bootstrap().AddErrorHandler(new MyHandler()).Build();
+```
+
+or in `ServiceCollection` like previous example
+
+This handler is called when exception is thrown from message handler or middleware or the protocol wrapper has error. If error handler has unhandled exception the client will be disposed.
+
+### Middleware
+
+Use `IMiddleware` interface like this
+
+```csharp
+class MyMiddleware : IMiddleware
+{
+    public Task<byte[]> ReceiveAsync(byte[] bytes)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<byte[]> SendAsync(byte[] bytes)
+    {
+        throw new NotImplementedException();
+    }
+}
+```
+
+initialization is like previous examples
+
+### Protocol
+
+You can use your custom protocol. One should implement both of these interfaces
+
+```csharp
+class MyProtocol : IProtocol
+{
+    public void Dispose()
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<Datagram> ReceiveAsync()
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task SendAsync(Datagram message)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+class MyProtocolCreator : IProtocolCreator
+{
+    public IProtocol Create(IPEndPoint listeningPoint)
+    {
+        throw new NotImplementedException();
+    }
+}
+```
+and register them like this
+
+```csharp
+var client = new Bootstrap().UseCustomProtocol(new MyProtocolCreator()).Build();
+```
+
+or
+
+```csharp
+var services = new ServiceCollection().AddSingleton<IProtocolCreator, MyProtocolCreator>().AddDatagrammer();
+```
+
+### Pipeline
+
+![alt text](https://1drv.ms/u/s!AuWUDcF0-bJ4gf5wZCIu54CvlCLUPg)
