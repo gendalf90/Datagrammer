@@ -130,7 +130,7 @@ This handler is called when exception is thrown from message handler or middlewa
 
 ### Middleware
 
-Use `IMiddleware` interface like this
+Use `IMiddleware` interface
 
 ```csharp
 class MyMiddleware : IMiddleware
@@ -147,7 +147,7 @@ class MyMiddleware : IMiddleware
 }
 ```
 
-initialization is like previous examples
+initialization is like previous examples. Middlewares are performed in the order in which you registered them.
 
 ### Protocol
 
