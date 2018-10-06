@@ -194,4 +194,6 @@ var services = new ServiceCollection().AddSingleton<IProtocolCreator, MyProtocol
 
 ### Pipeline
 
+As you can see the middlewares are called sequentially. And handlers are called in parallel.
+
 ![alt text](https://9wpxtq.db.files.1drv.com/y4mfT5AmcOnbLro8HiHJ_hjs_BaEEFr9V8zxOAWUDdZPUQhJDQS8Z3OPZI4_A3nKhoyp8WVfKk7v6Wz3ii6eeHBz3YJqMyYV3QEULHHgM_8HirHfKMYvGdRVCHO4hMYp_PBX3yjSnNP7oWq9DD0BO2H6U0-izMTveKDAc7yNpZ463okwigoYMzOj2RdzmlhHMX1?width=741&height=351&cropmode=none)
