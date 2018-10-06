@@ -59,7 +59,9 @@ namespace Tests.Integration
         {
             var middlewareErrorMessage = "middleware error";
             var middlewareMock = new Mock<IMiddleware>();
-            middlewareMock.Setup(middleware => middleware.ReceiveAsync(It.IsAny<byte[]>()))
+            middlewareMock.Setup(middleware => middleware.SendAsync(It.IsAny<Datagram>()))
+                          .ReturnsAsync<Datagram, IMiddleware, Datagram>(sent => sent);
+            middlewareMock.Setup(middleware => middleware.ReceiveAsync(It.IsAny<Datagram>()))
                           .ThrowsAsync(new Exception(middlewareErrorMessage));
             var errorMiddlewareHandlerMock = new Mock<IErrorHandler>();
             errorMiddlewareHandlerMock.Setup(handler => handler.HandleAsync(It.IsAny<IContext>(), It.Is<Exception>(e => e.Message == middlewareErrorMessage)))

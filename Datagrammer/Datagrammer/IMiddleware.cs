@@ -4,8 +4,8 @@ namespace Datagrammer
 {
     public interface IMiddleware
     {
-        Task<byte[]> ReceiveAsync(byte[] bytes);
+        Task<Datagram> ReceiveAsync(Datagram message);
 
-        Task<byte[]> SendAsync(byte[] bytes);
+        Task<Datagram> SendAsync(Datagram message);
     }
 }

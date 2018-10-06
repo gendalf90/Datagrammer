@@ -50,9 +50,11 @@ namespace Datagrammer
 
         private async Task SendUnsafeAsync(Datagram message)
         {
+            var processedMessage = message;
+
             try
             {
-                await ProcessBySendingPipelineAsync(message);
+                processedMessage = await ProcessBySendingPipelineAsync(processedMessage);
             }
             catch (Exception e)
             {
@@ -62,7 +64,7 @@ namespace Datagrammer
 
             try
             {
-                await protocol.SendAsync(message);
+                await protocol.SendAsync(processedMessage);
             }
             catch (ObjectDisposedException)
             {
@@ -74,12 +76,16 @@ namespace Datagrammer
             }
         }
 
-        private async Task ProcessBySendingPipelineAsync(Datagram message)
+        private async Task<Datagram> ProcessBySendingPipelineAsync(Datagram message)
         {
+            var processedMessage = message;
+
             foreach (var middleware in middlewares)
             {
-                message.Bytes = await middleware.SendAsync(message.Bytes);
+                processedMessage = await middleware.SendAsync(processedMessage);
             }
+
+            return processedMessage;
         }
 
         private async Task HandleErrorAsync(Exception e)
@@ -165,9 +171,11 @@ namespace Datagrammer
                     continue;
                 }
 
+                var processedMessage = message;
+
                 try
                 {
-                    await ProcessByReceivingPipelineAsync(message);
+                    processedMessage = await ProcessByReceivingPipelineAsync(processedMessage);
                 }
                 catch (Exception e)
                 {
@@ -175,16 +183,20 @@ namespace Datagrammer
                     continue;
                 }
 
-                await HandleMessageAsync(message);
+                await HandleMessageAsync(processedMessage);
             };
         }
 
-        private async Task ProcessByReceivingPipelineAsync(Datagram message)
+        private async Task<Datagram> ProcessByReceivingPipelineAsync(Datagram message)
         {
+            var processedMessage = message;
+
             foreach (var middleware in middlewares.Reverse())
             {
-                message.Bytes = await middleware.ReceiveAsync(message.Bytes);
+                processedMessage = await middleware.ReceiveAsync(processedMessage);
             }
+
+            return processedMessage;
         }
 
         public async Task HandleMessageAsync(Datagram message)
