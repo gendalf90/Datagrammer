@@ -135,12 +135,12 @@ Use `IMiddleware` interface
 ```csharp
 class MyMiddleware : IMiddleware
 {
-    public Task<byte[]> ReceiveAsync(byte[] bytes)
+    public Task<Datagram> ReceiveAsync(Datagram message)
     {
         throw new NotImplementedException();
     }
 
-    public Task<byte[]> SendAsync(byte[] bytes)
+    public Task<Datagram> SendAsync(Datagram message)
     {
         throw new NotImplementedException();
     }
