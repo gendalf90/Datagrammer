@@ -34,7 +34,7 @@ await new HostBuilder().ConfigureServices((context, services) =>
                        .RunConsoleAsync();
 ```
 
-if you want to use it as hosted service just do so
+if you want to use it as hosted service just do this
 
 ```csharp
 await new HostBuilder().ConfigureServices((context, services) =>
@@ -80,7 +80,7 @@ await client.SendAsync(new Datagram
 
 ### Receiving
 
-Use `IMessageHandler` interface for message handling. You can send response from the handler by `IContext` interface.
+Use `IMessageHandler` interface for message handling. It is possible to send response from the handler by `IContext` interface.
 
 ```csharp
 class MyHandler : IMessageHandler
