@@ -68,7 +68,7 @@ var services = new ServiceCollection().Configure<DatagramOptions>(options =>
 
 ### Sending
 
-Do it like this
+You can send datagram to remote point like this
 
 ```csharp
 await client.SendAsync(new Datagram
@@ -80,7 +80,7 @@ await client.SendAsync(new Datagram
 
 ### Receiving
 
-Use `IMessageHandler` interface for message handling
+Use `IMessageHandler` interface for message handling. You can send response from the handler by `IContext` interface.
 
 ```csharp
 class MyHandler : IMessageHandler
@@ -106,7 +106,7 @@ var services = new ServiceCollection().AddSingleton<IMessageHandler, MyHandler>(
 
 ### Error handling
 
-Use `IErrorHandler` interface for it
+Use `IErrorHandler` interface for error handling
 
 ```csharp
 class MyHandler : IErrorHandler
@@ -130,7 +130,7 @@ This handler is called when exception is thrown from message handler or middlewa
 
 ### Middleware
 
-Use `IMiddleware` interface
+Use `IMiddleware` interface. These classes perform preprocessing of messages. You can modify sent data or ip address or break message sending or receiving through exception throwing.
 
 ```csharp
 class MyMiddleware : IMiddleware
@@ -147,7 +147,7 @@ class MyMiddleware : IMiddleware
 }
 ```
 
-initialization is like previous examples. Middlewares are performed in the order in which you registered them.
+Initialization is like previous examples. Middlewares are performed in the order in which you registered them.
 
 ### Protocol
 
