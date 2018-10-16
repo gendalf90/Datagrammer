@@ -149,6 +149,15 @@ namespace Datagrammer
                 CloseConnection();
                 throw;
             }
+            finally
+            {
+                PerformDisposingActionIfExist();
+            }
+        }
+
+        private void PerformDisposingActionIfExist()
+        {
+            options.Value.OnDisposingAction?.Invoke();
         }
 
         private async Task ReceiveMessageAsync()
