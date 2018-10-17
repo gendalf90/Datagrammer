@@ -13,6 +13,7 @@ namespace Datagrammer
         private readonly IEnumerable<IErrorHandler> errorHandlers;
         private readonly IEnumerable<IMessageHandler> messageHandlers;
         private readonly IEnumerable<IMiddleware> middlewares;
+        private readonly IEnumerable<IStoppingHandler> stoppingHandlers;
         private readonly IProtocolCreator protocolCreator;
         private readonly IOptions<DatagramOptions> options;
 
@@ -23,12 +24,14 @@ namespace Datagrammer
         public DatagramClient(IEnumerable<IErrorHandler> errorHandlers,
                               IEnumerable<IMessageHandler> messageHandlers,
                               IEnumerable<IMiddleware> middlewares,
+                              IEnumerable<IStoppingHandler> stoppingHandlers,
                               IProtocolCreator protocolCreator,
                               IOptions<DatagramOptions> options)
         {
             this.errorHandlers = errorHandlers;
             this.messageHandlers = messageHandlers;
             this.middlewares = middlewares;
+            this.stoppingHandlers = stoppingHandlers;
             this.protocolCreator = protocolCreator;
             this.options = options;
         }
@@ -151,13 +154,13 @@ namespace Datagrammer
             }
             finally
             {
-                PerformDisposingActionIfExist();
+                await HandleStoppingAsync();
             }
         }
 
-        private void PerformDisposingActionIfExist()
+        private async Task HandleStoppingAsync()
         {
-            options.Value.OnDisposingAction?.Invoke();
+            await Task.WhenAll(stoppingHandlers.Select(async handler => await handler.HandleAsync()));
         }
 
         private async Task ReceiveMessageAsync()

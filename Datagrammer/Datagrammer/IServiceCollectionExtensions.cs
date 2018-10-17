@@ -40,12 +40,14 @@ namespace Datagrammer
             var messageHandlers = provider.GetServices<IMessageHandler>();
             var errorHandlers = provider.GetServices<IErrorHandler>();
             var middlewares = provider.GetServices<IMiddleware>();
+            var stoppingHandlers = provider.GetServices<IStoppingHandler>();
             var options = provider.GetService<IOptions<DatagramOptions>>() ?? new OptionsWrapper<DatagramOptions>(new DatagramOptions());
             var protocolCreator = provider.GetService<IProtocolCreator>() ?? new ProtocolCreator();
 
             return new DatagramClient(errorHandlers,
                                       messageHandlers,
                                       middlewares,
+                                      stoppingHandlers,
                                       protocolCreator,
                                       options);
         }

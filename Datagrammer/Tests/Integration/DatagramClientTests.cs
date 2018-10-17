@@ -116,8 +116,12 @@ namespace Tests.Integration
             var errorHandlerMock = new Mock<IErrorHandler>();
             errorHandlerMock.Setup(handler => handler.HandleAsync(It.IsAny<IContext>(), It.IsAny<Exception>()))
                             .ThrowsAsync(new Exception());
+            var stoppingHandlerMock = new Mock<IStoppingHandler>();
+            stoppingHandlerMock.Setup(handler => handler.HandleAsync())
+                               .Returns(Task.CompletedTask);
             using (var client = new Bootstrap().AddMessageHandler(messageHandlerMock.Object)
                                                .AddErrorHandler(errorHandlerMock.Object)
+                                               .AddStoppingHandler(stoppingHandlerMock.Object)
                                                .Configure(options =>
                                                {
                                                    options.ListeningPoint = firstEndPoint;
@@ -134,12 +138,15 @@ namespace Tests.Integration
                                                {
                                                    options.ListeningPoint = firstEndPoint;
                                                })
+                                               .AddStoppingHandler(stoppingHandlerMock.Object)
                                                .Build())
             {
                 await client.SendAsync(message);
                 client.Stop();
                 await Assert.ThrowsAsync<ObjectDisposedException>(() => client.SendAsync(message));
             }
+
+            stoppingHandlerMock.Verify(handler => handler.HandleAsync(), Times.Exactly(2));
         }
     }
 }

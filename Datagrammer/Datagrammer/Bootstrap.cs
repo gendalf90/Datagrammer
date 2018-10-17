@@ -9,6 +9,7 @@ namespace Datagrammer
         private IList<IMessageHandler> messageHandlers;
         private IList<IErrorHandler> errorHandlers;
         private IList<IMiddleware> middlewares;
+        private IList<IStoppingHandler> stoppingHandlers;
         private IOptions<DatagramOptions> options;
         private IProtocolCreator protocolCreator;
 
@@ -17,6 +18,7 @@ namespace Datagrammer
             messageHandlers = new List<IMessageHandler>();
             errorHandlers = new List<IErrorHandler>();
             middlewares = new List<IMiddleware>();
+            stoppingHandlers = new List<IStoppingHandler>();
             options = new OptionsWrapper<DatagramOptions>(new DatagramOptions());
             protocolCreator = new ProtocolCreator();
         }
@@ -54,6 +56,17 @@ namespace Datagrammer
             return this;
         }
 
+        public Bootstrap AddStoppingHandler(IStoppingHandler handler)
+        {
+            if(handler == null)
+            {
+                throw new ArgumentNullException(nameof(handler));
+            }
+
+            stoppingHandlers.Add(handler);
+            return this;
+        }
+
         public Bootstrap Configure(Action<DatagramOptions> action)
         {
             if (action == null)
@@ -76,6 +89,7 @@ namespace Datagrammer
             var client = new DatagramClient(errorHandlers,
                                             messageHandlers,
                                             middlewares,
+                                            stoppingHandlers,
                                             protocolCreator,
                                             options);
             client.Start();
