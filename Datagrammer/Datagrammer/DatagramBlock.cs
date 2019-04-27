@@ -26,7 +26,7 @@ namespace Datagrammer
 
         public DatagramBlock(DatagramOptions options)
         {
-            this.options = options;
+            this.options = options ?? throw new ArgumentNullException(nameof(options));
 
             initializationTaskSource = new TaskCompletionSource<int>();
 
