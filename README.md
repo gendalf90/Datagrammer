@@ -48,14 +48,18 @@ This method starts initialization by an asynchronous way. It is safe to call thi
 await datagramBlock.Initialization;
 ```
 
-If initialization is failed exception may be got by this property. Other methods or properties work in standard way like another dataflow blocks. But it is worth to say about datagramBlock.Completion property. This property is related to `datagramBlock.Initialization` and can be completed or failed until initialization is completed or failed.
+If initialization is failed exception may be got by this property. Other methods or properties work by standard way like another dataflow blocks. But it is worth to say about `datagramBlock.Completion` property. This property is related to `datagramBlock.Initialization` and can be completed or failed until initialization is completed or failed.
 
 ### Sending
 
 To send packet in simple case use this:
 
 ```csharp
-await datagramBlock.SendAsync(new Datagram { Bytes = new byte[] { 1, 2, 3 }, EndPoint = new IPEndPoint(IPAddress.Parse("192.168.1.1"), 12345) };
+await datagramBlock.SendAsync(new Datagram 
+{ 
+    Bytes = new byte[] { 1, 2, 3 }, 
+    EndPoint = new IPEndPoint(IPAddress.Parse("192.168.1.1"), 12345) 
+};
 ```
 
 by Dataflow way:
