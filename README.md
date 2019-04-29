@@ -59,7 +59,7 @@ await datagramBlock.SendAsync(new Datagram
 { 
     Bytes = new byte[] { 1, 2, 3 }, 
     EndPoint = new IPEndPoint(IPAddress.Parse("192.168.1.1"), 12345) 
-};
+});
 ```
 
 by Dataflow way:
@@ -84,7 +84,7 @@ datagramBlock.AsObservable().Subscribe(message =>
 by Dataflow way:
 
 ```csharp
-ITargetBlock<Datagram> targetBlock = new ActionBlock(message =>
+ITargetBlock<Datagram> targetBlock = new ActionBlock<Datagram>(message =>
 {
     var str = Encoding.UTF8.GetString(message.Bytes, 0, message.Bytes.Length);
     Console.WriteLine(str);
