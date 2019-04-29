@@ -1,6 +1,9 @@
-# Datagrammer
+ # Datagrammer
 
-Lightweight asynchronous extensible udp client
+Datagrammer is lightweight asynchronous Udp client based on Dataflow library. You can read this [article](https://docs.microsoft.com/en-us/dotnet/standard/parallel-programming/dataflow-task-parallel-library) if you want to know more about Dataflow.
+Datagrammer helps you to build your own data flows which includes udp packets sending and receiving.
+You can use it separately of Dataflow with Reactive extensions so Datagrammer has IObservable interface compatibility.
+You can know more about Rx [here](http://reactivex.io/).
 
 ### Getting started
 
@@ -18,182 +21,73 @@ using Datagrammer;
 
 ### Initialization
 
-Use `Bootstrap` class for client creating
+To create Datagrammer block use this code:
 
 ```csharp
-var client = new Bootstrap().Build(); // by default it listen on the (IPAddress.Any, 5000) endpoint
+var datagramBlock = new DatagramBlock();
 ```
 
-or `Microsoft.Extensions.DependencyInjection` extension
+or with options you need to specify:
 
 ```csharp
-await new HostBuilder().ConfigureServices((context, services) =>
-                       {
-                           services.AddDatagrammer(); //it register both interfaces IDatagramClient and IDatagramSender
-                       })
-                       .RunConsoleAsync();
+var datagramBlock = new DatagramBlock(new DatagramOptions
+{
+    ListeningPoint = new IPEndPoint(IPAddress.Loopback, 12345)
+});
 ```
-
-if you want to use it as hosted service just do this
+			
+after it you already can use this block but it won't be sending or receiving any data. To start packets processing call this method:
 
 ```csharp
-await new HostBuilder().ConfigureServices((context, services) =>
-                       {
-                           services.AddHostedDatagrammer(); //it register only IDatagramSender interface
-                       })
-                       .RunConsoleAsync();
+datagramBlock.Start();
 ```
 
-### Configuration
-
-By `Bootstrap` class using
+This method starts initialization by an asynchronous way. It is safe to call this many times or from different threads and it does not throw any exceptions. To await initialization use this task property:
 
 ```csharp
-var client = new Bootstrap().Configure(options =>
-                            {
-                                options.ListeningPoint.Address = IPAddress.Loopback;
-                            })
-                            .Build();
+await datagramBlock.Initialization;
 ```
 
-by `Microsoft.Extensions.DependencyInjection` and `Microsoft.Extensions.Configuration` using
-
-```csharp
-var services = new ServiceCollection().Configure<DatagramOptions>(options =>
-                                      {
-                                          options.ListeningPoint = new IPEndPoint(IPAddress.Loopback, 12345);
-                                      })
-                                      .AddDatagrammer();
-```
+If initialization is failed exception may be got by this property. Other methods or properties work in standard way like another dataflow blocks. But it is worth to say about datagramBlock.Completion property. This property is related to `datagramBlock.Initialization` and can be completed or failed until initialization is completed or failed.
 
 ### Sending
 
-You can send datagram to remote point like this
+To send packet in simple case use this:
 
 ```csharp
-await client.SendAsync(new Datagram
-{
-    Bytes = new byte[] { 1, 2, 3 },
-    EndPoint = new IPEndPoint(IPAddress.Parse("192.168.1.1"), 50000)
-});
+await datagramBlock.SendAsync(new Datagram { Bytes = new byte[] { 1, 2, 3 }, EndPoint = new IPEndPoint(IPAddress.Parse("192.168.1.1"), 12345) };
+```
+
+by Dataflow way:
+
+```csharp
+ISourceBlock<Datagram> sourceBlock = new YourCustomSourceBlock(); //it may be buffer or transform or your custom generator block
+sourceBlock.LinkTo(datagramBlock);
 ```
 
 ### Receiving
 
-Use `IMessageHandler` interface for message handling. It is possible to send response from the handler by `IContext` interface.
+To receive messages by reactive way I suggest to use Reactive extensions. It is more conveniently if you consider to use IObservable interface.
 
 ```csharp
-class MyHandler : IMessageHandler
+datagramBlock.AsObservable().Subscribe(message =>
 {
-    public Task HandleAsync(IContext context, Datagram message)
-    {
-        throw new NotImplementedException();
-    }
-}
+    var str = Encoding.UTF8.GetString(message.Bytes, 0, message.Bytes.Length);
+    Console.WriteLine(str);
+});
 ```
 
-and register it in `Bootstrap`
+by Dataflow way:
 
 ```csharp
-var client = new Bootstrap().AddMessageHandler(new MyHandler()).Build();
-```
-
-or in `ServiceCollection`
-
-```csharp
-var services = new ServiceCollection().AddSingleton<IMessageHandler, MyHandler>().AddDatagrammer();
-```
-
-### Error handling
-
-Use `IErrorHandler` interface for error handling
-
-```csharp
-class MyHandler : IErrorHandler
+ITargetBlock<Datagram> targetBlock = new ActionBlock(message =>
 {
-    public Task HandleAsync(IContext context, Exception e)
-    {
-        throw new NotImplementedException();
-    }
-}
+    var str = Encoding.UTF8.GetString(message.Bytes, 0, message.Bytes.Length);
+    Console.WriteLine(str);
+});
+datagramBlock.LinkTo(targetBlock);
 ```
 
-and register it in `Bootstrap`
+### License
 
-```csharp
-var client = new Bootstrap().AddErrorHandler(new MyHandler()).Build();
-```
-
-or in `ServiceCollection` like previous example
-
-This handler is called when exception is thrown from message handler or middleware or the protocol wrapper has error. If error handler has unhandled exception the client will be disposed.
-
-### Middleware
-
-Use `IMiddleware` interface. These classes perform preprocessing of messages. You can modify sent data or ip address or break message sending or receiving through exception throwing.
-
-```csharp
-class MyMiddleware : IMiddleware
-{
-    public Task<Datagram> ReceiveAsync(Datagram message)
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task<Datagram> SendAsync(Datagram message)
-    {
-        throw new NotImplementedException();
-    }
-}
-```
-
-Initialization is like previous examples. Middlewares are performed in the order in which you registered them.
-
-### Protocol
-
-You can use your custom protocol. One should implement both of these interfaces
-
-```csharp
-class MyProtocol : IProtocol
-{
-    public void Dispose()
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task<Datagram> ReceiveAsync()
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task SendAsync(Datagram message)
-    {
-        throw new NotImplementedException();
-    }
-}
-
-class MyProtocolCreator : IProtocolCreator
-{
-    public IProtocol Create(IPEndPoint listeningPoint)
-    {
-        throw new NotImplementedException();
-    }
-}
-```
-and register them like this
-
-```csharp
-var client = new Bootstrap().UseCustomProtocol(new MyProtocolCreator()).Build();
-```
-
-or
-
-```csharp
-var services = new ServiceCollection().AddSingleton<IProtocolCreator, MyProtocolCreator>().AddDatagrammer();
-```
-
-### Pipeline
-
-As you can see the middlewares are called sequentially. And handlers are called in parallel.
-
-![alt text](https://9wpxtq.db.files.1drv.com/y4mfT5AmcOnbLro8HiHJ_hjs_BaEEFr9V8zxOAWUDdZPUQhJDQS8Z3OPZI4_A3nKhoyp8WVfKk7v6Wz3ii6eeHBz3YJqMyYV3QEULHHgM_8HirHfKMYvGdRVCHO4hMYp_PBX3yjSnNP7oWq9DD0BO2H6U0-izMTveKDAc7yNpZ463okwigoYMzOj2RdzmlhHMX1?width=741&height=351&cropmode=none)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
