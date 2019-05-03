@@ -6,8 +6,10 @@ namespace Datagrammer
     {
         public IPEndPoint ListeningPoint { get; set; } = new IPEndPoint(IPAddress.Any, 5000);
 
-        public int SendingBoundedCapacity { get; set; } = 1;
+        public int SendingBufferCapacity { get; set; } = 1;
 
         public int SendingParallelismDegree { get; set; } = 1;
+
+        public int ReceivingBufferCapacity { get; set; } = 1;
     }
 }

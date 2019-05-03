@@ -32,19 +32,18 @@ namespace Datagrammer
 
             sendingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
             {
-                BoundedCapacity = 1
+                BoundedCapacity = options.SendingBufferCapacity
             });
 
             receivingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
             {
-                BoundedCapacity = 1
+                BoundedCapacity = options.ReceivingBufferCapacity
             });
 
             sendingAction = new ActionBlock<Datagram>(SendMessageAsync, new ExecutionDataflowBlockOptions
             {
-                BoundedCapacity = options.SendingBoundedCapacity,
-                MaxDegreeOfParallelism = options.SendingParallelismDegree,
-                EnsureOrdered = false
+                BoundedCapacity = options.SendingParallelismDegree,
+                MaxDegreeOfParallelism = options.SendingParallelismDegree
             });
 
             Completion = CompleteAsync();
