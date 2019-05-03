@@ -91,6 +91,37 @@ ITargetBlock<Datagram> targetBlock = new ActionBlock<Datagram>(message =>
 });
 datagramBlock.LinkTo(targetBlock);
 ```
+### Middleware
+
+`MiddlewareBlock` can help you to build flows with data modification, filtering or transformation. 
+
+```csharp
+public class PipeBlock : MiddlewareBlock
+{
+    public PipeBlock() : base(new MiddlewareOptions())
+    {
+    }
+    
+    protected override async Task ProcessAsync(Datagram datagram)
+    {
+    	await NextAsync(datagram); //send data to next block. you can modify it before. or you can just send current data and process it below. don't call the method if you want to break current request pipeline.
+	
+	await ProcessInternalAsync(datagram);
+    }
+}
+```
+
+Let's build our own data pipe:
+
+```csharp
+var pipeBlock = new PipeBlock();
+var anotherBlock = new LogSentDatagramBlock(); //middleware too, like above
+var oneMoreBlock = new SaveSentDatagramToFileBlock(); //may be just Datagram target
+
+datagramBlock.LinkTo(pipeBlock);
+pipeBlock.LinkTo(anotherBlock);
+anotherBlock.LinkTo(oneMoreBlock);
+```
 
 ### License
 
