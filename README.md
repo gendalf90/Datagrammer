@@ -108,6 +108,11 @@ public class PipeBlock : MiddlewareBlock
 	
 	await ProcessInternalAsync(datagram);
     }
+    
+    private async Task ProcessInternalAsync(Datagram datagram)
+    {
+    	//...
+    }
 }
 ```
 
@@ -115,12 +120,12 @@ Let's build our own data pipe:
 
 ```csharp
 var pipeBlock = new PipeBlock();
-var anotherBlock = new LogSentDatagramBlock(); //middleware too, like above
-var oneMoreBlock = new SaveSentDatagramToFileBlock(); //may be just Datagram target
+var anotherPipeBlock = new LogDatagramBlock(); //middleware too, like above
+var oneMoreBlock = new SendDatagramToSomewhereBlock(); //may be just Datagram target
 
 datagramBlock.LinkTo(pipeBlock);
-pipeBlock.LinkTo(anotherBlock);
-anotherBlock.LinkTo(oneMoreBlock);
+pipeBlock.LinkTo(anotherPipeBlock);
+anotherPipeBlock.LinkTo(oneMoreBlock);
 ```
 
 ### License
