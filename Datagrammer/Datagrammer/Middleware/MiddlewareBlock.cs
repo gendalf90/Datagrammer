@@ -4,29 +4,31 @@ using System.Threading.Tasks.Dataflow;
 
 namespace Datagrammer.Middleware
 {
-    public abstract class MiddlewareBlock : IPropagatorBlock<Datagram, Datagram>
+    public abstract class MiddlewareBlock<TInput, TOutput> : IPropagatorBlock<TInput, TOutput>
     {
-        private readonly MiddlewareOptions options;
-        private readonly IPropagatorBlock<Datagram, Datagram> inputBuffer;
-        private readonly ITargetBlock<Datagram> processingAction;
-        private readonly IPropagatorBlock<Datagram, Datagram> outputBuffer;
+        private readonly IPropagatorBlock<TInput, TInput> inputBuffer;
+        private readonly ITargetBlock<TInput> processingAction;
+        private readonly IPropagatorBlock<TOutput, TOutput> outputBuffer;
 
         public MiddlewareBlock(MiddlewareOptions options)
         {
-            this.options = options ?? throw new ArgumentNullException(nameof(options));
+            if(options == null)
+            {
+                throw new ArgumentNullException(nameof(options));
+            }
 
-            inputBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
+            inputBuffer = new BufferBlock<TInput>(new DataflowBlockOptions
             {
                 BoundedCapacity = options.InputBufferCapacity
             });
 
-            processingAction = new ActionBlock<Datagram>(ProcessAsync, new ExecutionDataflowBlockOptions
+            processingAction = new ActionBlock<TInput>(ProcessSafeAsync, new ExecutionDataflowBlockOptions
             {
                 BoundedCapacity = options.ProcessingParallelismDegree,
                 MaxDegreeOfParallelism = options.ProcessingParallelismDegree
             });
 
-            outputBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
+            outputBuffer = new BufferBlock<TOutput>(new DataflowBlockOptions
             {
                 BoundedCapacity = options.OutputBufferCapacity
             });
@@ -34,12 +36,24 @@ namespace Datagrammer.Middleware
             inputBuffer.LinkTo(processingAction);
         }
 
-        protected async Task NextAsync(Datagram datagram)
+        protected async Task NextAsync(TOutput value)
         {
-            await outputBuffer.SendAsync(datagram);
+            await outputBuffer.SendAsync(value);
         }
 
-        protected abstract Task ProcessAsync(Datagram datagram);
+        private async Task ProcessSafeAsync(TInput value)
+        {
+            try
+            {
+                await ProcessAsync(value);
+            }
+            catch(Exception e)
+            {
+                Fault(e);
+            }
+        }
+
+        protected abstract Task ProcessAsync(TInput value);
 
         public Task Completion => Task.WhenAll(inputBuffer.Completion,
                                                processingAction.Completion, 
@@ -63,7 +77,7 @@ namespace Datagrammer.Middleware
         {
         }
 
-        public Datagram ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target, out bool messageConsumed)
+        public TOutput ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<TOutput> target, out bool messageConsumed)
         {
             return outputBuffer.ConsumeMessage(messageHeader, target, out messageConsumed);
         }
@@ -80,22 +94,22 @@ namespace Datagrammer.Middleware
         {
         }
 
-        public IDisposable LinkTo(ITargetBlock<Datagram> target, DataflowLinkOptions linkOptions)
+        public IDisposable LinkTo(ITargetBlock<TOutput> target, DataflowLinkOptions linkOptions)
         {
             return outputBuffer.LinkTo(target, linkOptions);
         }
 
-        public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, Datagram messageValue, ISourceBlock<Datagram> source, bool consumeToAccept)
+        public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, TInput messageValue, ISourceBlock<TInput> source, bool consumeToAccept)
         {
             return inputBuffer.OfferMessage(messageHeader, messageValue, source, consumeToAccept);
         }
 
-        public void ReleaseReservation(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target)
+        public void ReleaseReservation(DataflowMessageHeader messageHeader, ITargetBlock<TOutput> target)
         {
             outputBuffer.ReleaseReservation(messageHeader, target);
         }
 
-        public bool ReserveMessage(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target)
+        public bool ReserveMessage(DataflowMessageHeader messageHeader, ITargetBlock<TOutput> target)
         {
             return outputBuffer.ReserveMessage(messageHeader, target);
         }
