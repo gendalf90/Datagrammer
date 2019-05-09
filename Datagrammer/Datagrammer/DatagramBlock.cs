@@ -139,12 +139,7 @@ namespace Datagrammer
         private async Task<Datagram> ReceiveMessageAsync()
         {
             var data = await udpClient.ReceiveAsync();
-
-            return new Datagram
-            {
-                EndPoint = data.RemoteEndPoint,
-                Bytes = data.Buffer
-            };
+            return new Datagram(data.Buffer, data.RemoteEndPoint);
         }
 
         private async Task ProcessMessageAsync(Datagram message)
@@ -193,7 +188,9 @@ namespace Datagrammer
         {
             try
             {
-                await udpClient.SendAsync(message.Bytes, message.Bytes.Length, message.EndPoint);
+                var bytes = message.GetBytes();
+                var endPoint = message.GetEndPoint();
+                await udpClient.SendAsync(bytes, bytes.Length, endPoint);
             }
             catch(Exception e)
             {

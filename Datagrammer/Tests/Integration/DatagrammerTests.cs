@@ -47,11 +47,11 @@ namespace Tests.Integration
             });
             var toSendMessages = new List<Datagram>
             {
-                new Datagram { Bytes = new byte[] { 1, 2, 3 }, EndPoint = receivingEndPoint },
-                new Datagram { Bytes = new byte[] { 4, 5, 6 }, EndPoint = receivingEndPoint },
-                new Datagram { Bytes = new byte[] { 7, 8, 9 }, EndPoint = receivingEndPoint },
-                new Datagram { Bytes = new byte[] { 10, 11, 12 }, EndPoint = receivingEndPoint },
-                new Datagram { Bytes = new byte[] { 13, 14, 15 }, EndPoint = receivingEndPoint }
+                new Datagram( new byte[] { 1, 2, 3 }, receivingEndPoint),
+                new Datagram( new byte[] { 4, 5, 6 }, receivingEndPoint),
+                new Datagram( new byte[] { 7, 8, 9 }, receivingEndPoint),
+                new Datagram( new byte[] { 10, 11, 12 }, receivingEndPoint),
+                new Datagram( new byte[] { 13, 14, 15 }, receivingEndPoint)
             };
             var receivingBlock = new DatagramBlock(new DatagramOptions
             {
@@ -72,9 +72,9 @@ namespace Tests.Integration
                 await Task.WhenAll(sendingBlock.Completion, receivingBlock.Completion);
             }
 
-            receivedMessages.Select(message => message.Bytes)
+            receivedMessages.Select(message => message.GetBytes())
                             .Should()
-                            .BeEquivalentTo(toSendMessages.Select(message => message.Bytes));
+                            .BeEquivalentTo(toSendMessages.Select(message => message.GetBytes()));
         }
     }
 }
