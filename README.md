@@ -55,11 +55,7 @@ If initialization is failed exception may be got by this property. Other methods
 To send packet in simple case use this:
 
 ```csharp
-await datagramBlock.SendAsync(new Datagram 
-{ 
-    Bytes = new byte[] { 1, 2, 3 }, 
-    EndPoint = new IPEndPoint(IPAddress.Parse("192.168.1.1"), 12345) 
-});
+await datagramBlock.SendAsync(new Datagram(new byte[] { 1, 2, 3 }, new IPEndPoint(IPAddress.Parse("192.168.1.1"), 12345)));
 ```
 
 by Dataflow way:
@@ -76,7 +72,8 @@ To receive messages by reactive way I suggest to use Reactive extensions. It is 
 ```csharp
 datagramBlock.AsObservable().Subscribe(message =>
 {
-    var str = Encoding.UTF8.GetString(message.Bytes, 0, message.Bytes.Length);
+    var bytes = message.GetBytes();
+    var str = Encoding.UTF8.GetString(bytes, 0, bytes.Length);
     Console.WriteLine(str);
 });
 ```
@@ -86,7 +83,8 @@ by Dataflow way:
 ```csharp
 ITargetBlock<Datagram> targetBlock = new ActionBlock<Datagram>(message =>
 {
-    var str = Encoding.UTF8.GetString(message.Bytes, 0, message.Bytes.Length);
+    var bytes = message.GetBytes();
+    var str = Encoding.UTF8.GetString(bytes, 0, bytes.Length);
     Console.WriteLine(str);
 });
 datagramBlock.LinkTo(targetBlock);
