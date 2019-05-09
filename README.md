@@ -96,7 +96,7 @@ datagramBlock.LinkTo(targetBlock);
 `MiddlewareBlock` can help you to build flows with data processing, filtering or transformation. 
 
 ```csharp
-public class PipeBlock : MiddlewareBlock
+public class PipeBlock : MiddlewareBlock<Datagram, Datagram>
 {
     public PipeBlock() : base(new MiddlewareOptions())
     {
