@@ -72,9 +72,9 @@ namespace Tests.Integration
                 await Task.WhenAll(sendingBlock.Completion, receivingBlock.Completion);
             }
 
-            receivedMessages.Select(message => message.GetBytes())
+            receivedMessages.Select(message => message.Buffer.ToArray())
                             .Should()
-                            .BeEquivalentTo(toSendMessages.Select(message => message.GetBytes()));
+                            .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
         }
     }
 }

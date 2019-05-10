@@ -1,46 +1,34 @@
 ﻿using System;
-using System.Collections.Immutable;
 using System.Net;
 
 namespace Datagrammer
 {
-    public sealed class Datagram
+    public readonly struct Datagram
     {
-        private readonly byte[] bytes;
-        private readonly byte[] address;
-        private readonly int port;
-
-        public Datagram(byte[] bytes, IPEndPoint endPoint)
+        public Datagram(ReadOnlyMemory<byte> buffer, ReadOnlyMemory<byte> address, int port)
         {
-            this.bytes = bytes ?? throw new ArgumentNullException(nameof(bytes));
+            Buffer = buffer;
+            Address = address;
+            Port = port;
+        }
 
-            if(endPoint == null)
+        public Datagram(byte[] buffer, IPEndPoint endPoint)
+        {
+            Buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
+
+            if (endPoint == null)
             {
                 throw new ArgumentNullException(nameof(endPoint));
             }
             
-            address = endPoint.Address.GetAddressBytes();
-            port = endPoint.Port;
+            Address = endPoint.Address.GetAddressBytes();
+            Port = endPoint.Port;
         }
 
-        public IPEndPoint GetEndPoint()
-        {
-            return new IPEndPoint(new IPAddress(address), port);
-        }
+        public ReadOnlyMemory<byte> Buffer { get; }
 
-        public byte[] GetBytes()
-        {
-            return (byte[])bytes.Clone();
-        }
+        public ReadOnlyMemory<byte> Address { get; }
 
-        public ReadOnlyMemory<byte> AsMemory()
-        {
-            return new ReadOnlyMemory<byte>(bytes);
-        }
-
-        public ImmutableArray<byte> AsImmutable()
-        {
-            return ImmutableArray.Create(bytes);
-        }
+        public int Port { get; }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -188,8 +189,8 @@ namespace Datagrammer
         {
             try
             {
-                var bytes = message.GetBytes();
-                var endPoint = message.GetEndPoint();
+                var bytes = message.Buffer.ToArray();
+                var endPoint = new IPEndPoint(new IPAddress(message.Address.Span), message.Port);
                 await udpClient.SendAsync(bytes, bytes.Length, endPoint);
             }
             catch(Exception e)
