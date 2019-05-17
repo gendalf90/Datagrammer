@@ -103,9 +103,9 @@ public class PipeBlock : MiddlewareBlock<Datagram, Datagram>
     protected override async Task ProcessAsync(Datagram datagram)
     {
     	await NextAsync(datagram); //send data to next block. you can modify it before. 
-	                             or you can just send current data and process it below. 
-				     don't call the method if you want to break current request pipeline.
-				     it just put data to an internal source buffer, all middlewares work in parallel
+	                           //or you can just send current data and process it below. 
+				   //don't call the method if you want to break current request pipeline.
+				   //it just put data to an internal source buffer, all middlewares work in parallel
 	
 	await ProcessInternalAsync(datagram);
     }
