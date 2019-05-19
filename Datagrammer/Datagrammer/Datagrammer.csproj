@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <Version>5.0.0-alpha</Version>
+    <Version>5.0.1-alpha</Version>
     <Authors>Roman Boykov</Authors>
     <Description>Lightweight asynchronous udp client with dataflow and reactivity support</Description>
     <PackageProjectUrl>https://github.com/gendalf90/Datagrammer</PackageProjectUrl>

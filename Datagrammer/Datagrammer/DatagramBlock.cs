@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -187,15 +188,21 @@ namespace Datagrammer
 
         private async Task SendMessageAsync(Datagram message)
         {
+            var sendingBuffer = ArrayPool<byte>.Shared.Rent(message.Buffer.Length);
+            
             try
             {
-                var bytes = message.Buffer.ToArray();
+                message.Buffer.CopyTo(sendingBuffer);
                 var endPoint = new IPEndPoint(new IPAddress(message.Address.Span), message.Port);
-                await udpClient.SendAsync(bytes, bytes.Length, endPoint);
+                await udpClient.SendAsync(sendingBuffer, message.Buffer.Length, endPoint);
             }
             catch(Exception e)
             {
                 Fault(e);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(sendingBuffer);
             }
         }
 
