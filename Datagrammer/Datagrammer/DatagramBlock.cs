@@ -193,7 +193,7 @@ namespace Datagrammer
             try
             {
                 message.Buffer.CopyTo(sendingBuffer);
-                var endPoint = new IPEndPoint(new IPAddress(message.Address.Span), message.Port);
+                var endPoint = new IPEndPoint(new IPAddress(message.Address.ToArray()), message.Port);
                 await udpClient.SendAsync(sendingBuffer, message.Buffer.Length, endPoint);
             }
             catch(Exception e)
