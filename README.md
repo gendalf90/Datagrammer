@@ -72,7 +72,7 @@ To receive messages by reactive way I suggest to use Reactive extensions. It is 
 ```csharp
 datagramBlock.AsObservable().Subscribe(message =>
 {
-    var bytes = message.GetBytes();
+    var bytes = message.Buffer.ToArray();
     var str = Encoding.UTF8.GetString(bytes, 0, bytes.Length);
     Console.WriteLine(str);
 });
@@ -83,7 +83,7 @@ by Dataflow way:
 ```csharp
 ITargetBlock<Datagram> targetBlock = new ActionBlock<Datagram>(message =>
 {
-    var bytes = message.GetBytes();
+    var bytes = message.Buffer.ToArray();
     var str = Encoding.UTF8.GetString(bytes, 0, bytes.Length);
     Console.WriteLine(str);
 });
