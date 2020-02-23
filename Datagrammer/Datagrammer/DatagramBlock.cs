@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Buffers;
-using System.Net;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,7 +8,7 @@ using System.Threading.Tasks.Dataflow;
 
 namespace Datagrammer
 {
-    public sealed class DatagramBlock : IPropagatorBlock<Datagram, Datagram>
+    public sealed class DatagramBlock : IPropagatorBlock<Datagram, Datagram>, IReceivableSourceBlock<Datagram>
     {
         private const int NotInitializedState = 0;
         private const int InitializedState = 1;
@@ -17,9 +17,13 @@ namespace Datagrammer
         private readonly IPropagatorBlock<Datagram, Datagram> sendingBuffer;
         private readonly IPropagatorBlock<Datagram, Datagram> receivingBuffer;
         private readonly ITargetBlock<Datagram> sendingAction;
+        private readonly IPropagatorBlock<AwaitableSocketAsyncEventArgs, Datagram> receivingAction;
+        private readonly CancellationTokenSource cancellationTokenSource;
         private readonly TaskCompletionSource<int> initializationTaskSource;
+        private readonly Socket socket;
+        private readonly TaskScheduler taskScheduler;
+        private readonly ConcurrentQueue<AwaitableSocketAsyncEventArgs> socketEventsPool;
 
-        private UdpClient udpClient;
         private int state = NotInitializedState;
 
         public DatagramBlock() : this(new DatagramOptions())
@@ -30,23 +34,45 @@ namespace Datagrammer
         {
             this.options = options ?? throw new ArgumentNullException(nameof(options));
 
+            socket = options.Socket ?? throw new ArgumentNullException(nameof(options.Socket));
+
+            taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
+
+            cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
+
             initializationTaskSource = new TaskCompletionSource<int>();
 
             sendingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
             {
-                BoundedCapacity = options.SendingBufferCapacity
+                BoundedCapacity = options.SendingBufferCapacity,
+                TaskScheduler = taskScheduler,
+                CancellationToken = cancellationTokenSource.Token
             });
 
             receivingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
             {
-                BoundedCapacity = options.ReceivingBufferCapacity
+                BoundedCapacity = options.ReceivingBufferCapacity,
+                TaskScheduler = taskScheduler,
+                CancellationToken = cancellationTokenSource.Token
             });
 
             sendingAction = new ActionBlock<Datagram>(SendMessageAsync, new ExecutionDataflowBlockOptions
             {
                 BoundedCapacity = options.SendingParallelismDegree,
-                MaxDegreeOfParallelism = options.SendingParallelismDegree
+                MaxDegreeOfParallelism = options.SendingParallelismDegree,
+                CancellationToken = cancellationTokenSource.Token,
+                TaskScheduler = taskScheduler
             });
+
+            receivingAction = new TransformBlock<AwaitableSocketAsyncEventArgs, Datagram>(ReceiveMessageAsync, new ExecutionDataflowBlockOptions
+            {
+                BoundedCapacity = options.ReceivingParallelismDegree,
+                MaxDegreeOfParallelism = options.ReceivingParallelismDegree,
+                CancellationToken = cancellationTokenSource.Token,
+                TaskScheduler = taskScheduler
+            });
+
+            socketEventsPool = new ConcurrentQueue<AwaitableSocketAsyncEventArgs>();
 
             Completion = CompleteAsync();
         }
@@ -82,7 +108,10 @@ namespace Datagrammer
 
         private void StartClientListening()
         {
-            udpClient = new UdpClient(options.ListeningPoint);
+            if(!socket.IsBound)
+            {
+                socket.Bind(options.ListeningPoint ?? throw new ArgumentNullException(nameof(options.ListeningPoint)));
+            }
         }
 
         private void CompleteInitialization()
@@ -98,7 +127,8 @@ namespace Datagrammer
         private void StartProcessing()
         {
             LinkSendingAction();
-            ReceiveMessagesSafeAsync();
+            LinkReceivingAction();
+            StartMessageReceiving();
         }
 
         private void LinkSendingAction()
@@ -106,51 +136,62 @@ namespace Datagrammer
             sendingBuffer.LinkTo(sendingAction);
         }
 
-        private async void ReceiveMessagesSafeAsync()
+        private void LinkReceivingAction()
+        {
+            receivingAction.LinkTo(receivingBuffer);
+        }
+
+        private void StartMessageReceiving()
+        {
+            Task.Factory.StartNew(ProcessMessageReceivingAsync, cancellationTokenSource.Token, TaskCreationOptions.None, taskScheduler);
+        }
+
+        private async void ProcessMessageReceivingAsync()
+        {
+            while(true)
+            {
+                try
+                {
+                    var socketEvent = GetOrCreateSocketEvent();
+                    
+                    if (!await receivingAction.SendAsync(socketEvent, cancellationTokenSource.Token))
+                    {
+                        break;
+                    }
+                }
+                catch(Exception e)
+                {
+                    Fault(e);
+
+                    throw;
+                }
+            }
+        }
+
+        private async Task<Datagram> ReceiveMessageAsync(AwaitableSocketAsyncEventArgs socketEvent)
         {
             try
             {
-                await ReceiveMessagesAsync();
+                if(socket.ReceiveAsync(socketEvent))
+                {
+                    await socketEvent;
+                }
+                else
+                {
+                    socketEvent.ThrowIfNotSuccess();
+                }
+
+                return socketEvent.GetDatagram();
             }
             catch(Exception e)
             {
                 Fault(e);
+
+                throw;
             }
-        }
-
-        private async Task ReceiveMessagesAsync()
-        {
-            while (true)
+            finally
             {
-                try
-                {
-                    var message = await ReceiveMessageAsync();
-                    await ProcessMessageAsync(message);
-                }
-                catch (ObjectDisposedException)
-                {
-                    break;
-                }
-                catch (ProcessingStoppedException)
-                {
-                    break;
-                }
-            };
-        }
-
-        private async Task<Datagram> ReceiveMessageAsync()
-        {
-            var data = await udpClient.ReceiveAsync();
-            return new Datagram(data.Buffer, data.RemoteEndPoint);
-        }
-
-        private async Task ProcessMessageAsync(Datagram message)
-        {
-            var isMessageReceived = await receivingBuffer.SendAsync(message);
-
-            if(!isMessageReceived)
-            {
-                throw new ProcessingStoppedException();
+                ReleaseSocketEvent(socketEvent);
             }
         }
 
@@ -158,12 +199,30 @@ namespace Datagrammer
 
         private async Task CompleteAsync()
         {
-            using (udpClient)
+            try
             {
-                await Task.WhenAll(initializationTaskSource.Task,
-                                   sendingBuffer.Completion,
-                                   sendingAction.Completion,
-                                   receivingBuffer.Completion);
+                await AwaitAllCompletions();
+            }
+            finally
+            {
+                DisposeSocketIfNeeded();
+            }
+        }
+
+        private async Task AwaitAllCompletions()
+        {
+            await Task.WhenAll(initializationTaskSource.Task,
+                               sendingBuffer.Completion,
+                               sendingAction.Completion,
+                               receivingBuffer.Completion,
+                               receivingAction.Completion);
+        }
+
+        private void DisposeSocketIfNeeded()
+        {
+            if (options.DisposeSocketAfterCompletion)
+            {
+                socket?.Dispose();
             }
         }
 
@@ -172,6 +231,7 @@ namespace Datagrammer
             receivingBuffer.Complete();
             sendingBuffer.Complete();
             sendingAction.Complete();
+            receivingAction.Complete();
         }
 
         public Datagram ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target, out bool messageConsumed)
@@ -184,26 +244,51 @@ namespace Datagrammer
             receivingBuffer.Fault(exception);
             sendingBuffer.Fault(exception);
             sendingAction.Fault(exception);
+            receivingAction.Fault(exception);
         }
 
         private async Task SendMessageAsync(Datagram message)
         {
-            var sendingBuffer = ArrayPool<byte>.Shared.Rent(message.Buffer.Length);
-            
+            var socketEvent = GetOrCreateSocketEvent();
+
             try
             {
-                message.Buffer.CopyTo(sendingBuffer);
-                var endPoint = new IPEndPoint(new IPAddress(message.Address.ToArray()), message.Port);
-                await udpClient.SendAsync(sendingBuffer, message.Buffer.Length, endPoint);
+                socketEvent.SetDatagram(message);
+
+                if (socket.SendToAsync(socketEvent))
+                {
+                    await socketEvent;
+                }
+                else
+                {
+                    socketEvent.ThrowIfNotSuccess();
+                }
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Fault(e);
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(sendingBuffer);
+                ReleaseSocketEvent(socketEvent);
             }
+        }
+
+        private AwaitableSocketAsyncEventArgs GetOrCreateSocketEvent()
+        {
+            if(socketEventsPool.TryDequeue(out var socketEvent))
+            {
+                return socketEvent;
+            }
+
+            return new AwaitableSocketAsyncEventArgs();
+        }
+
+        private void ReleaseSocketEvent(AwaitableSocketAsyncEventArgs socketEvent)
+        {
+            socketEvent.Reset();
+
+            socketEventsPool.Enqueue(socketEvent);
         }
 
         public IDisposable LinkTo(ITargetBlock<Datagram> target, DataflowLinkOptions linkOptions)
@@ -224,6 +309,20 @@ namespace Datagrammer
         public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, Datagram messageValue, ISourceBlock<Datagram> source, bool consumeToAccept)
         {
             return sendingBuffer.OfferMessage(messageHeader, messageValue, source, consumeToAccept);
+        }
+
+        public bool TryReceive(Predicate<Datagram> filter, out Datagram item)
+        {
+            var receivable = (IReceivableSourceBlock<Datagram>)receivingBuffer;
+
+            return receivable.TryReceive(filter, out item);
+        }
+
+        public bool TryReceiveAll(out IList<Datagram> items)
+        {
+            var receivable = (IReceivableSourceBlock<Datagram>)receivingBuffer;
+
+            return receivable.TryReceiveAll(out items);
         }
     }
 }

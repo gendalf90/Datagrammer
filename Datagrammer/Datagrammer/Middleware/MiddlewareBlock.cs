@@ -1,14 +1,18 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
 namespace Datagrammer.Middleware
 {
-    public abstract class MiddlewareBlock<TInput, TOutput> : IPropagatorBlock<TInput, TOutput>
+    public abstract class MiddlewareBlock<TInput, TOutput> : IPropagatorBlock<TInput, TOutput>, IReceivableSourceBlock<TOutput>
     {
         private readonly IPropagatorBlock<TInput, TInput> inputBuffer;
         private readonly ITargetBlock<TInput> processingAction;
         private readonly IPropagatorBlock<TOutput, TOutput> outputBuffer;
+
+        private readonly CancellationTokenSource cancellationTokenSource;
 
         public MiddlewareBlock(MiddlewareOptions options)
         {
@@ -17,20 +21,28 @@ namespace Datagrammer.Middleware
                 throw new ArgumentNullException(nameof(options));
             }
 
+            cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
+
             inputBuffer = new BufferBlock<TInput>(new DataflowBlockOptions
             {
-                BoundedCapacity = options.InputBufferCapacity
+                BoundedCapacity = options.InputBufferCapacity,
+                TaskScheduler = options.TaskScheduler,
+                CancellationToken = options.CancellationToken
             });
 
             processingAction = new ActionBlock<TInput>(ProcessSafeAsync, new ExecutionDataflowBlockOptions
             {
                 BoundedCapacity = options.ProcessingParallelismDegree,
-                MaxDegreeOfParallelism = options.ProcessingParallelismDegree
+                MaxDegreeOfParallelism = options.ProcessingParallelismDegree,
+                TaskScheduler = options.TaskScheduler,
+                CancellationToken = options.CancellationToken
             });
 
             outputBuffer = new BufferBlock<TOutput>(new DataflowBlockOptions
             {
-                BoundedCapacity = options.OutputBufferCapacity
+                BoundedCapacity = options.OutputBufferCapacity,
+                TaskScheduler = options.TaskScheduler,
+                CancellationToken = options.CancellationToken
             });
 
             inputBuffer.LinkTo(processingAction);
@@ -38,7 +50,7 @@ namespace Datagrammer.Middleware
 
         protected async Task NextAsync(TOutput value)
         {
-            await outputBuffer.SendAsync(value);
+            await outputBuffer.SendAsync(value, cancellationTokenSource.Token);
         }
 
         private async Task ProcessSafeAsync(TInput value)
@@ -112,6 +124,20 @@ namespace Datagrammer.Middleware
         public bool ReserveMessage(DataflowMessageHeader messageHeader, ITargetBlock<TOutput> target)
         {
             return outputBuffer.ReserveMessage(messageHeader, target);
+        }
+
+        public bool TryReceive(Predicate<TOutput> filter, out TOutput item)
+        {
+            var receivable = (IReceivableSourceBlock<TOutput>)outputBuffer;
+
+            return receivable.TryReceive(filter, out item);
+        }
+
+        public bool TryReceiveAll(out IList<TOutput> items)
+        {
+            var receivable = (IReceivableSourceBlock<TOutput>)outputBuffer;
+
+            return receivable.TryReceiveAll(out items);
         }
     }
 }
