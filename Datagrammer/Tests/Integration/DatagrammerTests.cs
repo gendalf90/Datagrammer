@@ -7,6 +7,8 @@ using FluentAssertions;
 using System.Collections.Generic;
 using System.Threading.Tasks.Dataflow;
 using System.Linq;
+using System.Net.Sockets;
+using System.Threading;
 
 namespace Tests.Integration
 {
@@ -17,7 +19,7 @@ namespace Tests.Integration
         private readonly TimeSpan delayTime = TimeSpan.FromSeconds(3);
 
         [Fact]
-        public async Task StartingAndFinishing()
+        public void StartingAndFinishing()
         {
             var datagramBlock = new DatagramBlock();
 
@@ -117,6 +119,111 @@ namespace Tests.Integration
             receivedMessages.Select(message => message.Buffer.ToArray())
                             .Should()
                             .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
+        }
+
+        [Fact]
+        public async Task UseBoundSocket()
+        {
+            using (var socket = new Socket(SocketType.Dgram, ProtocolType.Udp))
+            {
+                socket.Bind(receivingEndPoint);
+
+                var sendingBlock = new DatagramBlock();
+                var toSendMessages = new List<Datagram>();
+
+                for (int i = 0; i < 100; i++)
+                {
+                    toSendMessages.Add(new Datagram(BitConverter.GetBytes(i), receivingEndPoint));
+                }
+
+                var receivingBlock = new DatagramBlock(new DatagramOptions
+                {
+                    Socket = socket,
+                    DisposeSocketAfterCompletion = false
+                });
+                var receivedMessages = new List<Datagram>();
+
+                using (receivingBlock.AsObservable().Subscribe(message => receivedMessages.Add(message)))
+                {
+                    receivingBlock.Start();
+                    sendingBlock.Start();
+                    await Task.WhenAll(sendingBlock.Initialization, receivingBlock.Initialization);
+                    var sendingTasks = toSendMessages.Select(sendingBlock.SendAsync);
+                    await Task.WhenAll(sendingTasks);
+                    await Task.Delay(delayTime);
+                    receivingBlock.Complete();
+                    sendingBlock.Complete();
+                    await Task.WhenAll(sendingBlock.Completion, receivingBlock.Completion);
+                }
+
+                receivedMessages.Select(message => message.Buffer.ToArray())
+                                .Should()
+                                .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
+            }
+        }
+
+        [Fact]
+        public async Task Disposing()
+        {
+            var cancellation = new CancellationTokenSource();
+
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                CancellationToken = cancellation.Token
+            });
+
+            datagramBlock.Start();
+
+            await datagramBlock.Initialization;
+
+            cancellation.Cancel();
+
+            datagramBlock
+                .Awaiting(block => block.Completion)
+                .Should()
+                .Throw<OperationCanceledException>();
+        }
+
+        [Fact]
+        public async Task SocketErrorsHandling()
+        {
+            var socketErrors = new List<SocketException>();
+
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                SocketErrorHandler = e =>
+                {
+                    socketErrors.Add(e);
+
+                    return Task.CompletedTask;
+                }
+            });
+
+            var toSendMessages = new List<Datagram>()
+            {
+                new Datagram(new byte[] { 1, 2, 3 }, receivingEndPoint),
+                new Datagram(new byte[100000], receivingEndPoint),
+                new Datagram(new byte[] { 1, 2, 3 }, new byte[1000], 0)
+            };
+
+            datagramBlock.Start();
+
+            await datagramBlock.Initialization;
+
+            var sendingTasks = toSendMessages.Select(datagramBlock.SendAsync);
+
+            await Task.WhenAll(sendingTasks);
+
+            datagramBlock.Complete();
+
+            datagramBlock.Awaiting(block => block.Completion)
+                         .Should()
+                         .NotThrow();
+            socketErrors
+                .Should()
+                .HaveCount(3)
+                .And
+                .AllBeOfType<SocketException>();
         }
     }
 }

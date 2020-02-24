@@ -43,10 +43,18 @@ namespace Datagrammer
         {
             var ipEndPoint = (IPEndPoint)RemoteEndPoint;
 
-            ipEndPoint.Address = datagram.GetIPAddress();
+            if(!datagram.TryGetIPAddress(out var ipAddress))
+            {
+                throw new SocketException((int)SocketError.DestinationAddressRequired);
+            }
+
+            ipEndPoint.Address = ipAddress;
             ipEndPoint.Port = datagram.Port;
 
-            datagram.Buffer.CopyTo(MemoryBuffer);
+            if(!datagram.Buffer.TryCopyTo(MemoryBuffer))
+            {
+                throw new SocketException((int)SocketError.MessageSize);
+            }
 
             SetBuffer(0, datagram.Buffer.Length);
         }

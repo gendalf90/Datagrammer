@@ -73,9 +73,25 @@ namespace Datagrammer
             return !left.Equals(right);
         }
 
-        internal IPAddress GetIPAddress()
+        internal bool TryGetIPAddress(out IPAddress address)
         {
-            return cachedIpAddress == null ? new IPAddress(Address.Span) : cachedIpAddress;
+            address = cachedIpAddress;
+
+            if(address != null)
+            {
+                return true;
+            }
+
+            try
+            {
+                address = new IPAddress(Address.Span);
+            }
+            catch
+            {
+                return false;
+            }
+
+            return true;
         }
     }
 }

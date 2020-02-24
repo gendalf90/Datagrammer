@@ -177,6 +177,10 @@ namespace Datagrammer
 
                 ReleaseSocketEvent(socketEvent);
             }
+            catch(SocketException e)
+            {
+                await HandleSocketErrorAsync(e);
+            }
             catch(Exception e)
             {
                 Fault(e);
@@ -256,6 +260,10 @@ namespace Datagrammer
 
                 ReleaseSocketEvent(socketEvent);
             }
+            catch (SocketException e)
+            {
+                await HandleSocketErrorAsync(e);
+            }
             catch (Exception e)
             {
                 Fault(e);
@@ -277,6 +285,23 @@ namespace Datagrammer
             socketEvent.Reset();
 
             socketEventsPool.Enqueue(socketEvent);
+        }
+
+        private async Task HandleSocketErrorAsync(SocketException socketException)
+        {
+            try
+            {
+                var handler = options.SocketErrorHandler;
+
+                if(handler != null)
+                {
+                    await handler(socketException);
+                }
+            }
+            catch(Exception e)
+            {
+                Fault(e);
+            }
         }
 
         public IDisposable LinkTo(ITargetBlock<Datagram> target, DataflowLinkOptions linkOptions)

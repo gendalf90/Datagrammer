@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System;
+using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,5 +25,7 @@ namespace Datagrammer
         public int ReceivingParallelismDegree { get; set; } = 1;
 
         public bool DisposeSocketAfterCompletion { get; set; } = true;
+
+        public Func<SocketException, Task> SocketErrorHandler { get; set; }
     }
 }
