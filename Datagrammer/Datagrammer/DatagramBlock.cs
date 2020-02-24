@@ -18,7 +18,7 @@ namespace Datagrammer
         private readonly IPropagatorBlock<Datagram, Datagram> receivingBuffer;
         private readonly ITargetBlock<Datagram> sendingAction;
         private readonly ITargetBlock<AwaitableSocketAsyncEventArgs> receivingAction;
-        private readonly CancellationTokenSource cancellationTokenSource;
+        private readonly CancellationTokenSource processingCancellationTokenSource;
         private readonly TaskCompletionSource<int> initializationTaskSource;
         private readonly Socket socket;
         private readonly TaskScheduler taskScheduler;
@@ -38,7 +38,7 @@ namespace Datagrammer
 
             taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
 
-            cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
+            processingCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
 
             initializationTaskSource = new TaskCompletionSource<int>();
             
@@ -46,21 +46,21 @@ namespace Datagrammer
             {
                 BoundedCapacity = options.SendingBufferCapacity,
                 TaskScheduler = taskScheduler,
-                CancellationToken = cancellationTokenSource.Token
+                CancellationToken = options.CancellationToken
             });
 
             receivingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
             {
                 BoundedCapacity = options.ReceivingBufferCapacity,
                 TaskScheduler = taskScheduler,
-                CancellationToken = cancellationTokenSource.Token
+                CancellationToken = options.CancellationToken
             });
 
             sendingAction = new ActionBlock<Datagram>(SendMessageAsync, new ExecutionDataflowBlockOptions
             {
                 BoundedCapacity = options.SendingParallelismDegree,
                 MaxDegreeOfParallelism = options.SendingParallelismDegree,
-                CancellationToken = cancellationTokenSource.Token,
+                CancellationToken = options.CancellationToken,
                 TaskScheduler = taskScheduler
             });
 
@@ -68,7 +68,7 @@ namespace Datagrammer
             {
                 BoundedCapacity = options.ReceivingParallelismDegree,
                 MaxDegreeOfParallelism = options.ReceivingParallelismDegree,
-                CancellationToken = cancellationTokenSource.Token,
+                CancellationToken = options.CancellationToken,
                 TaskScheduler = taskScheduler
             });
 
@@ -136,7 +136,7 @@ namespace Datagrammer
 
         private void StartMessageReceiving()
         {
-            Task.Factory.StartNew(ProcessMessageReceivingAsync, cancellationTokenSource.Token, TaskCreationOptions.None, taskScheduler);
+            Task.Factory.StartNew(ProcessMessageReceivingAsync, processingCancellationTokenSource.Token, TaskCreationOptions.None, taskScheduler);
         }
 
         private async void ProcessMessageReceivingAsync()
@@ -147,7 +147,7 @@ namespace Datagrammer
                 {
                     var socketEvent = GetOrCreateSocketEvent();
 
-                    await receivingAction.SendAsync(socketEvent, cancellationTokenSource.Token);
+                    await receivingAction.SendAsync(socketEvent, processingCancellationTokenSource.Token);
                 }
             }
             catch(Exception e)
@@ -162,7 +162,7 @@ namespace Datagrammer
             {
                 if(socket.ReceiveAsync(socketEvent))
                 {
-                    await socketEvent.WaitUntilCompletedAsync(cancellationTokenSource.Token);
+                    await socketEvent.WaitUntilCompletedAsync(processingCancellationTokenSource.Token);
                 }
                 else
                 {
@@ -171,7 +171,7 @@ namespace Datagrammer
 
                 var message = socketEvent.GetDatagram();
 
-                await receivingBuffer.SendAsync(message, cancellationTokenSource.Token);
+                await receivingBuffer.SendAsync(message, processingCancellationTokenSource.Token);
             }
             catch(Exception e)
             {
@@ -220,7 +220,7 @@ namespace Datagrammer
             sendingBuffer.Complete();
             sendingAction.Complete();
             receivingAction.Complete();
-            cancellationTokenSource.Cancel();
+            processingCancellationTokenSource.Cancel();
         }
 
         public Datagram ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target, out bool messageConsumed)
@@ -234,7 +234,7 @@ namespace Datagrammer
             sendingBuffer.Fault(exception);
             sendingAction.Fault(exception);
             receivingAction.Fault(exception);
-            cancellationTokenSource.Cancel();
+            processingCancellationTokenSource.Cancel();
         }
 
         private async Task SendMessageAsync(Datagram message)
@@ -247,7 +247,7 @@ namespace Datagrammer
 
                 if (socket.SendToAsync(socketEvent))
                 {
-                    await socketEvent.WaitUntilCompletedAsync(cancellationTokenSource.Token);
+                    await socketEvent.WaitUntilCompletedAsync(processingCancellationTokenSource.Token);
                 }
                 else
                 {
