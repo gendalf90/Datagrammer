@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
 
@@ -10,7 +10,12 @@ namespace Datagrammer
 {
     internal class AwaitableSocketAsyncEventArgs : SocketAsyncEventArgs, IValueTaskSource
     {
+        private const int HasResultState = 1;
+        private const int HasNoResultState = 0;
+
         private ManualResetValueTaskSourceCore<SocketError> awaiterSource = new ManualResetValueTaskSourceCore<SocketError>();
+
+        private int resultState = HasNoResultState;
 
         public AwaitableSocketAsyncEventArgs()
         {
@@ -42,9 +47,28 @@ namespace Datagrammer
             }
         }
 
+        private bool TryStartResultModifying()
+        {
+            var previousResultState = Interlocked.CompareExchange(ref resultState, HasResultState, HasNoResultState);
+            return previousResultState == HasNoResultState;
+        }
+
+        private void OnCancel(CancellationToken token)
+        {
+            if(TryStartResultModifying())
+            {
+                awaiterSource.SetException(new OperationCanceledException(token));
+            }
+        }
+
         protected override void OnCompleted(SocketAsyncEventArgs e)
         {
             base.OnCompleted(e);
+
+            if(!TryStartResultModifying())
+            {
+                return;
+            }
 
             if (e.SocketError == SocketError.Success)
             {
@@ -56,9 +80,12 @@ namespace Datagrammer
             }
         }
 
-        public ValueTaskAwaiter GetAwaiter()
+        public async ValueTask WaitUntilCompletedAsync(CancellationToken token)
         {
-            return new ValueTask(this, awaiterSource.Version).GetAwaiter();
+            using (token.Register(() => OnCancel(token)))
+            {
+                await new ValueTask(this, awaiterSource.Version);
+            }
         }
 
         public void GetResult(short token)
@@ -79,6 +106,8 @@ namespace Datagrammer
         public void Reset()
         {
             awaiterSource.Reset();
+
+            Interlocked.Exchange(ref resultState, HasNoResultState);
         }
     }
 }

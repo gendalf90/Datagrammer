@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Net;
-using System.Threading;
 
 namespace Datagrammer
 {
-    public readonly struct Datagram
+    public readonly struct Datagram : IEquatable<Datagram>
     {
         private readonly IPAddress cachedIpAddress;
 
@@ -46,6 +45,33 @@ namespace Datagrammer
         public ReadOnlyMemory<byte> Address { get; }
 
         public int Port { get; }
+
+        public bool Equals(Datagram other)
+        {
+            return Buffer.Span.SequenceEqual(other.Buffer.Span)
+                && Address.Span.SequenceEqual(other.Address.Span)
+                && Port == other.Port;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is Datagram datagram && Equals(datagram);
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Buffer, Address, Port);
+        }
+
+        public static bool operator ==(Datagram left, Datagram right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(Datagram left, Datagram right)
+        {
+            return !left.Equals(right);
+        }
 
         internal IPAddress GetIPAddress()
         {

@@ -17,7 +17,7 @@ namespace Datagrammer
         private readonly IPropagatorBlock<Datagram, Datagram> sendingBuffer;
         private readonly IPropagatorBlock<Datagram, Datagram> receivingBuffer;
         private readonly ITargetBlock<Datagram> sendingAction;
-        private readonly IPropagatorBlock<AwaitableSocketAsyncEventArgs, Datagram> receivingAction;
+        private readonly ITargetBlock<AwaitableSocketAsyncEventArgs> receivingAction;
         private readonly CancellationTokenSource cancellationTokenSource;
         private readonly TaskCompletionSource<int> initializationTaskSource;
         private readonly Socket socket;
@@ -41,7 +41,7 @@ namespace Datagrammer
             cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
 
             initializationTaskSource = new TaskCompletionSource<int>();
-
+            
             sendingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
             {
                 BoundedCapacity = options.SendingBufferCapacity,
@@ -64,7 +64,7 @@ namespace Datagrammer
                 TaskScheduler = taskScheduler
             });
 
-            receivingAction = new TransformBlock<AwaitableSocketAsyncEventArgs, Datagram>(ReceiveMessageAsync, new ExecutionDataflowBlockOptions
+            receivingAction = new ActionBlock<AwaitableSocketAsyncEventArgs>(ReceiveMessageAsync, new ExecutionDataflowBlockOptions
             {
                 BoundedCapacity = options.ReceivingParallelismDegree,
                 MaxDegreeOfParallelism = options.ReceivingParallelismDegree,
@@ -102,8 +102,7 @@ namespace Datagrammer
         private bool TryStartInitialization()
         {
             var previousState = Interlocked.CompareExchange(ref state, InitializedState, NotInitializedState);
-            var isInitializationNeeded = previousState == NotInitializedState;
-            return isInitializationNeeded;
+            return previousState == NotInitializedState;
         }
 
         private void StartClientListening()
@@ -127,18 +126,12 @@ namespace Datagrammer
         private void StartProcessing()
         {
             LinkSendingAction();
-            LinkReceivingAction();
             StartMessageReceiving();
         }
 
         private void LinkSendingAction()
         {
             sendingBuffer.LinkTo(sendingAction);
-        }
-
-        private void LinkReceivingAction()
-        {
-            receivingAction.LinkTo(receivingBuffer);
         }
 
         private void StartMessageReceiving()
@@ -148,46 +141,41 @@ namespace Datagrammer
 
         private async void ProcessMessageReceivingAsync()
         {
-            while(true)
+            try
             {
-                try
+                while(true)
                 {
                     var socketEvent = GetOrCreateSocketEvent();
-                    
-                    if (!await receivingAction.SendAsync(socketEvent, cancellationTokenSource.Token))
-                    {
-                        break;
-                    }
-                }
-                catch(Exception e)
-                {
-                    Fault(e);
 
-                    throw;
+                    await receivingAction.SendAsync(socketEvent, cancellationTokenSource.Token);
                 }
+            }
+            catch(Exception e)
+            {
+                Fault(e);
             }
         }
 
-        private async Task<Datagram> ReceiveMessageAsync(AwaitableSocketAsyncEventArgs socketEvent)
+        private async Task ReceiveMessageAsync(AwaitableSocketAsyncEventArgs socketEvent)
         {
             try
             {
                 if(socket.ReceiveAsync(socketEvent))
                 {
-                    await socketEvent;
+                    await socketEvent.WaitUntilCompletedAsync(cancellationTokenSource.Token);
                 }
                 else
                 {
                     socketEvent.ThrowIfNotSuccess();
                 }
 
-                return socketEvent.GetDatagram();
+                var message = socketEvent.GetDatagram();
+
+                await receivingBuffer.SendAsync(message, cancellationTokenSource.Token);
             }
             catch(Exception e)
             {
                 Fault(e);
-
-                throw;
             }
             finally
             {
@@ -232,6 +220,7 @@ namespace Datagrammer
             sendingBuffer.Complete();
             sendingAction.Complete();
             receivingAction.Complete();
+            cancellationTokenSource.Cancel();
         }
 
         public Datagram ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target, out bool messageConsumed)
@@ -245,6 +234,7 @@ namespace Datagrammer
             sendingBuffer.Fault(exception);
             sendingAction.Fault(exception);
             receivingAction.Fault(exception);
+            cancellationTokenSource.Cancel();
         }
 
         private async Task SendMessageAsync(Datagram message)
@@ -257,7 +247,7 @@ namespace Datagrammer
 
                 if (socket.SendToAsync(socketEvent))
                 {
-                    await socketEvent;
+                    await socketEvent.WaitUntilCompletedAsync(cancellationTokenSource.Token);
                 }
                 else
                 {
