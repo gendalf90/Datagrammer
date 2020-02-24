@@ -160,7 +160,9 @@ namespace Datagrammer
         {
             try
             {
-                if(socket.ReceiveAsync(socketEvent))
+                socketEvent.SetAnyEndPoint(socket.AddressFamily);
+
+                if(socket.ReceiveFromAsync(socketEvent))
                 {
                     await socketEvent.WaitUntilCompletedAsync(processingCancellationTokenSource.Token);
                 }
@@ -172,14 +174,12 @@ namespace Datagrammer
                 var message = socketEvent.GetDatagram();
 
                 await receivingBuffer.SendAsync(message, processingCancellationTokenSource.Token);
+
+                ReleaseSocketEvent(socketEvent);
             }
             catch(Exception e)
             {
                 Fault(e);
-            }
-            finally
-            {
-                ReleaseSocketEvent(socketEvent);
             }
         }
 
@@ -239,10 +239,10 @@ namespace Datagrammer
 
         private async Task SendMessageAsync(Datagram message)
         {
-            var socketEvent = GetOrCreateSocketEvent();
-
             try
             {
+                var socketEvent = GetOrCreateSocketEvent();
+
                 socketEvent.SetDatagram(message);
 
                 if (socket.SendToAsync(socketEvent))
@@ -253,14 +253,12 @@ namespace Datagrammer
                 {
                     socketEvent.ThrowIfNotSuccess();
                 }
+
+                ReleaseSocketEvent(socketEvent);
             }
             catch (Exception e)
             {
                 Fault(e);
-            }
-            finally
-            {
-                ReleaseSocketEvent(socketEvent);
             }
         }
 

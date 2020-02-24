@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
@@ -10,16 +9,34 @@ namespace Datagrammer
 {
     internal class AwaitableSocketAsyncEventArgs : SocketAsyncEventArgs, IValueTaskSource
     {
+        private const int MaxUDPSize = 0x10000;
         private const int HasResultState = 1;
         private const int HasNoResultState = 0;
 
         private ManualResetValueTaskSourceCore<SocketError> awaiterSource = new ManualResetValueTaskSourceCore<SocketError>();
-
         private int resultState = HasNoResultState;
 
         public AwaitableSocketAsyncEventArgs()
         {
-            RemoteEndPoint = new IPEndPoint(IPAddress.None, 0);
+            RemoteEndPoint = new IPEndPoint(IPAddress.None, IPEndPoint.MinPort);
+
+            SetBuffer(new byte[MaxUDPSize], 0, MaxUDPSize);
+        }
+
+        public void SetAnyEndPoint(AddressFamily addressFamily)
+        {
+            var ipEndPoint = (IPEndPoint)RemoteEndPoint;
+
+            if(addressFamily == AddressFamily.InterNetworkV6)
+            {
+                ipEndPoint.Address = IPAddress.IPv6Any;
+            }
+            else
+            {
+                ipEndPoint.Address = IPAddress.Any;
+            }
+
+            ipEndPoint.Port = IPEndPoint.MinPort;
         }
 
         public void SetDatagram(Datagram datagram)
@@ -29,14 +46,19 @@ namespace Datagrammer
             ipEndPoint.Address = datagram.GetIPAddress();
             ipEndPoint.Port = datagram.Port;
 
-            SetBuffer(MemoryMarshal.AsMemory(datagram.Buffer));
+            datagram.Buffer.CopyTo(MemoryBuffer);
+
+            SetBuffer(0, datagram.Buffer.Length);
         }
 
         public Datagram GetDatagram()
         {
             var ipEndPoint = (IPEndPoint)RemoteEndPoint;
+            var buffer = MemoryBuffer
+                .Slice(0, BytesTransferred)
+                .ToArray();
 
-            return new Datagram(Buffer, ipEndPoint);
+            return new Datagram(buffer, ipEndPoint);
         }
 
         public void ThrowIfNotSuccess()
@@ -105,6 +127,8 @@ namespace Datagrammer
 
         public void Reset()
         {
+            SetBuffer(0, MaxUDPSize);
+
             awaiterSource.Reset();
 
             Interlocked.Exchange(ref resultState, HasNoResultState);
