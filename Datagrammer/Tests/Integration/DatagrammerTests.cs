@@ -192,6 +192,7 @@ namespace Tests.Integration
 
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
+                SendingParallelismDegree = 3,
                 SocketErrorHandler = e =>
                 {
                     socketErrors.Add(e);
@@ -269,6 +270,10 @@ namespace Tests.Integration
             channel.Writer.Complete();
 
             await channel.Reader.Completion;
+
+            loopbackBlock.Complete();
+
+            await loopbackBlock.Completion;
 
             receivedMessages.Select(message => message.Buffer.ToArray())
                             .Should()
