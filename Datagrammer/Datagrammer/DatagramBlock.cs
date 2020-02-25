@@ -179,6 +179,8 @@ namespace Datagrammer
             }
             catch(SocketException e)
             {
+                ReleaseSocketEvent(socketEvent);
+
                 await HandleSocketErrorAsync(e);
             }
             catch(Exception e)
@@ -243,9 +245,11 @@ namespace Datagrammer
 
         private async Task SendMessageAsync(Datagram message)
         {
+            AwaitableSocketAsyncEventArgs socketEvent = null;
+
             try
             {
-                var socketEvent = GetOrCreateSocketEvent();
+                socketEvent = GetOrCreateSocketEvent();
 
                 socketEvent.SetDatagram(message);
 
@@ -262,6 +266,8 @@ namespace Datagrammer
             }
             catch (SocketException e)
             {
+                ReleaseSocketEvent(socketEvent);
+
                 await HandleSocketErrorAsync(e);
             }
             catch (Exception e)

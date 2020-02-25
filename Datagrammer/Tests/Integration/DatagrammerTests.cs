@@ -9,6 +9,7 @@ using System.Threading.Tasks.Dataflow;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
+using Datagrammer.Channels;
 
 namespace Tests.Integration
 {
@@ -224,6 +225,54 @@ namespace Tests.Integration
                 .HaveCount(3)
                 .And
                 .AllBeOfType<SocketException>();
+        }
+
+        [Fact]
+        public async Task UseChannelAdapter()
+        {
+            var loopbackBlock = new DatagramBlock(new DatagramOptions
+            {
+                ListeningPoint = receivingEndPoint
+            });
+            var toSendMessages = new List<Datagram>
+            {
+                new Datagram( new byte[] { 1, 2, 3 }, receivingEndPoint),
+                new Datagram( new byte[] { 4, 5, 6 }, receivingEndPoint),
+                new Datagram( new byte[] { 7, 8, 9 }, receivingEndPoint),
+                new Datagram( new byte[] { 10, 11, 12 }, receivingEndPoint),
+                new Datagram( new byte[] { 13, 14, 15 }, receivingEndPoint)
+            };
+            var receivedMessages = new List<Datagram>();
+
+            loopbackBlock.Start();
+            await loopbackBlock.Initialization;
+
+            var channel = loopbackBlock.AsChannel();
+
+            var readingTask = Task.Run(async () =>
+            {
+                for(int i = 0; i < toSendMessages.Count; i++)
+                {
+                    var datagram = await channel.Reader.ReadAsync();
+
+                    receivedMessages.Add(datagram);
+                }
+            });
+
+            foreach(var datagram in toSendMessages)
+            {
+                await channel.Writer.WriteAsync(datagram);
+            }
+
+            await readingTask;
+
+            channel.Writer.Complete();
+
+            await channel.Reader.Completion;
+
+            receivedMessages.Select(message => message.Buffer.ToArray())
+                            .Should()
+                            .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
         }
     }
 }

@@ -87,7 +87,7 @@ namespace Datagrammer.Channels
 
         private async void CompleteAsync()
         {
-            Exception exception = null;
+            Exception completeException = null;
 
             try
             {
@@ -95,11 +95,11 @@ namespace Datagrammer.Channels
             }
             catch (Exception e)
             {
-                exception = e;
+                completeException = e;
             }
             finally
             {
-                Complete(exception);
+                Complete(completeException);
             }
         }
 
