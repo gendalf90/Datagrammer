@@ -8,7 +8,6 @@ namespace Datagrammer.Channels
 {
     public sealed class ChannelAdapter : Channel<Datagram>
     {
-        private readonly ChannelAdapterOptions options;
         private readonly IPropagatorBlock<Datagram, Datagram> datagramBlock;
         private readonly Channel<Datagram> inputChannel;
         private readonly Channel<Datagram> outputChannel;
@@ -21,7 +20,11 @@ namespace Datagrammer.Channels
 
         public ChannelAdapter(IPropagatorBlock<Datagram, Datagram> datagramBlock, ChannelAdapterOptions options)
         {
-            this.options = options ?? throw new ArgumentNullException(nameof(options));
+            if(options == null)
+            {
+                throw new ArgumentNullException(nameof(options));
+            }
+
             this.datagramBlock = datagramBlock ?? throw new ArgumentNullException(nameof(datagramBlock));
 
             taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
