@@ -192,7 +192,6 @@ namespace Tests.Integration
 
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
-                SendingParallelismDegree = 3,
                 SocketErrorHandler = e =>
                 {
                     socketErrors.Add(e);
@@ -215,6 +214,7 @@ namespace Tests.Integration
             var sendingTasks = toSendMessages.Select(datagramBlock.SendAsync);
 
             await Task.WhenAll(sendingTasks);
+            await Task.Delay(delayTime);
 
             datagramBlock.Complete();
 
