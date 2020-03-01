@@ -11,8 +11,7 @@ namespace Datagrammer.Middleware
         private readonly IPropagatorBlock<TInput, TInput> inputBuffer;
         private readonly ITargetBlock<TInput> processingAction;
         private readonly IPropagatorBlock<TOutput, TOutput> outputBuffer;
-
-        private readonly CancellationTokenSource cancellationTokenSource;
+        private readonly CancellationToken cancellationToken;
 
         public MiddlewareBlock(MiddlewareOptions options)
         {
@@ -21,7 +20,7 @@ namespace Datagrammer.Middleware
                 throw new ArgumentNullException(nameof(options));
             }
 
-            cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
+            cancellationToken = options.CancellationToken;
 
             inputBuffer = new BufferBlock<TInput>(new DataflowBlockOptions
             {
@@ -50,7 +49,7 @@ namespace Datagrammer.Middleware
 
         protected async Task NextAsync(TOutput value)
         {
-            await outputBuffer.SendAsync(value, cancellationTokenSource.Token);
+            await outputBuffer.SendAsync(value, cancellationToken);
         }
 
         private async Task ProcessSafeAsync(TInput value)
