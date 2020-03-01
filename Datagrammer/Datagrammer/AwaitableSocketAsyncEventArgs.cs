@@ -45,10 +45,16 @@ namespace Datagrammer
 
             if(!datagram.TryGetIPAddress(out var ipAddress))
             {
-                throw new SocketException((int)SocketError.DestinationAddressRequired);
+                throw new SocketException((int)SocketError.AddressNotAvailable);
             }
 
             ipEndPoint.Address = ipAddress;
+
+            if(datagram.Port < IPEndPoint.MinPort || datagram.Port > IPEndPoint.MaxPort)
+            {
+                throw new SocketException((int)SocketError.AddressNotAvailable);
+            }
+
             ipEndPoint.Port = datagram.Port;
 
             if(!datagram.Buffer.TryCopyTo(MemoryBuffer))
