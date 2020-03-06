@@ -1,12 +1,11 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
 namespace Datagrammer.Middleware
 {
-    public abstract class MiddlewareBlock<TInput, TOutput> : IPropagatorBlock<TInput, TOutput>, IReceivableSourceBlock<TOutput>
+    public abstract class MiddlewareBlock<TInput, TOutput> : IPropagatorBlock<TInput, TOutput>
     {
         private readonly IPropagatorBlock<TInput, TInput> inputBuffer;
         private readonly ITargetBlock<TInput> processingAction;
@@ -123,20 +122,6 @@ namespace Datagrammer.Middleware
         public bool ReserveMessage(DataflowMessageHeader messageHeader, ITargetBlock<TOutput> target)
         {
             return outputBuffer.ReserveMessage(messageHeader, target);
-        }
-
-        public bool TryReceive(Predicate<TOutput> filter, out TOutput item)
-        {
-            var receivable = (IReceivableSourceBlock<TOutput>)outputBuffer;
-
-            return receivable.TryReceive(filter, out item);
-        }
-
-        public bool TryReceiveAll(out IList<TOutput> items)
-        {
-            var receivable = (IReceivableSourceBlock<TOutput>)outputBuffer;
-
-            return receivable.TryReceiveAll(out items);
         }
     }
 }

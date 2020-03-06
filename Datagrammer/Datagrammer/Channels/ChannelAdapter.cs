@@ -68,7 +68,7 @@ namespace Datagrammer.Channels
             }
             catch (Exception e)
             {
-                Complete(e);
+                Fault(e);
             }
         }
 
@@ -84,32 +84,37 @@ namespace Datagrammer.Channels
             }
             catch (Exception e)
             {
-                Complete(e);
+                Fault(e);
             }
         }
 
         private async void CompleteAsync()
         {
-            Exception completeException = null;
-
             try
             {
                 await Task.WhenAny(datagramBlock.Completion, inputChannel.Reader.Completion);
+
+                Complete();
             }
             catch (Exception e)
             {
-                completeException = e;
-            }
-            finally
-            {
-                Complete(completeException);
+                Fault(e);
             }
         }
 
-        private void Complete(Exception e)
+        private void Complete()
+        {
+            inputChannel.Writer.TryComplete();
+            outputChannel.Writer.TryComplete();
+            datagramBlock.Complete();
+            processingCancellationTokenSource.Cancel();
+        }
+
+        private void Fault(Exception e)
         {
             inputChannel.Writer.TryComplete(e);
             outputChannel.Writer.TryComplete(e);
+            datagramBlock.Fault(e);
             processingCancellationTokenSource.Cancel();
         }
     }

@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,7 +7,7 @@ using System.Threading.Tasks.Dataflow;
 
 namespace Datagrammer
 {
-    public sealed class DatagramBlock : IPropagatorBlock<Datagram, Datagram>, IReceivableSourceBlock<Datagram>
+    public sealed class DatagramBlock : IPropagatorBlock<Datagram, Datagram>
     {
         private const int NotInitializedState = 0;
         private const int InitializedState = 1;
@@ -328,20 +327,6 @@ namespace Datagrammer
         public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, Datagram messageValue, ISourceBlock<Datagram> source, bool consumeToAccept)
         {
             return sendingBuffer.OfferMessage(messageHeader, messageValue, source, consumeToAccept);
-        }
-
-        public bool TryReceive(Predicate<Datagram> filter, out Datagram item)
-        {
-            var receivable = (IReceivableSourceBlock<Datagram>)receivingBuffer;
-
-            return receivable.TryReceive(filter, out item);
-        }
-
-        public bool TryReceiveAll(out IList<Datagram> items)
-        {
-            var receivable = (IReceivableSourceBlock<Datagram>)receivingBuffer;
-
-            return receivable.TryReceiveAll(out items);
         }
     }
 }
