@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 namespace Datagrammer.Channels
 {
-    public sealed class ChannelAdapterOptions
+    public sealed class ChannelOptions
     {
         public TaskScheduler TaskScheduler { get; set; } = TaskScheduler.Default;
 

@@ -14,11 +14,11 @@ namespace Datagrammer.Channels
         private readonly CancellationTokenSource processingCancellationTokenSource;
         private readonly TaskScheduler taskScheduler;
 
-        public ChannelAdapter(IPropagatorBlock<Datagram, Datagram> datagramBlock) : this(datagramBlock, new ChannelAdapterOptions())
+        public ChannelAdapter(IPropagatorBlock<Datagram, Datagram> datagramBlock) : this(datagramBlock, new ChannelOptions())
         {
         }
 
-        public ChannelAdapter(IPropagatorBlock<Datagram, Datagram> datagramBlock, ChannelAdapterOptions options)
+        public ChannelAdapter(IPropagatorBlock<Datagram, Datagram> datagramBlock, ChannelOptions options)
         {
             if(options == null)
             {

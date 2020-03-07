@@ -13,7 +13,7 @@ namespace Datagrammer.Channels
 
         public static Channel<Datagram> AsChannel(this IPropagatorBlock<Datagram, Datagram> propagatorBlock, CancellationToken cancellationToken)
         {
-            return new ChannelAdapter(propagatorBlock, new ChannelAdapterOptions
+            return new ChannelAdapter(propagatorBlock, new ChannelOptions
             {
                 CancellationToken = cancellationToken
             });
