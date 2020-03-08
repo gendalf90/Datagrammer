@@ -73,6 +73,8 @@ namespace Datagrammer
             return !left.Equals(right);
         }
 
+        public static Datagram Empty { get; } = new Datagram();
+
         internal bool TryGetIPAddress(out IPAddress address)
         {
             address = cachedIpAddress;

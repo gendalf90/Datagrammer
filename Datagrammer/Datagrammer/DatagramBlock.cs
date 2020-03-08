@@ -16,11 +16,10 @@ namespace Datagrammer
         private readonly IPropagatorBlock<Datagram, Datagram> sendingBuffer;
         private readonly IPropagatorBlock<Datagram, Datagram> receivingBuffer;
         private readonly ITargetBlock<Datagram> sendingAction;
-        private readonly ITargetBlock<AwaitableSocketAsyncEventArgs> receivingAction;
-        private readonly CancellationTokenSource processingCancellationTokenSource;
+        private readonly IPropagatorBlock<AwaitableSocketAsyncEventArgs, Datagram> receivingAction;
+        private readonly CancellationTokenSource receivingCancellationTokenSource;
         private readonly TaskCompletionSource<int> initializationTaskSource;
         private readonly Socket socket;
-        private readonly TaskScheduler taskScheduler;
         private readonly ConcurrentQueue<AwaitableSocketAsyncEventArgs> socketEventsPool;
 
         private int state = NotInitializedState;
@@ -35,23 +34,21 @@ namespace Datagrammer
 
             socket = options.Socket ?? throw new ArgumentNullException(nameof(options.Socket));
 
-            taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
-
-            processingCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
+            receivingCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
 
             initializationTaskSource = new TaskCompletionSource<int>();
             
             sendingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
             {
                 BoundedCapacity = options.SendingBufferCapacity,
-                TaskScheduler = taskScheduler,
+                TaskScheduler = options.TaskScheduler,
                 CancellationToken = options.CancellationToken
             });
 
             receivingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
             {
                 BoundedCapacity = options.ReceivingBufferCapacity,
-                TaskScheduler = taskScheduler,
+                TaskScheduler = options.TaskScheduler,
                 CancellationToken = options.CancellationToken
             });
 
@@ -60,15 +57,17 @@ namespace Datagrammer
                 BoundedCapacity = options.SendingParallelismDegree,
                 MaxDegreeOfParallelism = options.SendingParallelismDegree,
                 CancellationToken = options.CancellationToken,
-                TaskScheduler = taskScheduler
+                TaskScheduler = options.TaskScheduler,
+                SingleProducerConstrained = true
             });
 
-            receivingAction = new ActionBlock<AwaitableSocketAsyncEventArgs>(ReceiveMessageAsync, new ExecutionDataflowBlockOptions
+            receivingAction = new TransformBlock<AwaitableSocketAsyncEventArgs, Datagram>(ReceiveMessageAsync, new ExecutionDataflowBlockOptions
             {
                 BoundedCapacity = options.ReceivingParallelismDegree,
                 MaxDegreeOfParallelism = options.ReceivingParallelismDegree,
                 CancellationToken = options.CancellationToken,
-                TaskScheduler = taskScheduler
+                TaskScheduler = options.TaskScheduler,
+                SingleProducerConstrained = true
             });
 
             socketEventsPool = new ConcurrentQueue<AwaitableSocketAsyncEventArgs>();
@@ -125,17 +124,28 @@ namespace Datagrammer
         private void StartProcessing()
         {
             LinkSendingAction();
+            LinkReceivingAction();
             StartMessageReceiving();
         }
 
         private void LinkSendingAction()
         {
-            sendingBuffer.LinkTo(sendingAction);
+            sendingBuffer.LinkTo(sendingAction, new DataflowLinkOptions { PropagateCompletion = true }, IsDatagramNotEmpty);
+        }
+
+        private void LinkReceivingAction()
+        {
+            receivingAction.LinkTo(receivingBuffer, new DataflowLinkOptions { PropagateCompletion = true }, IsDatagramNotEmpty);
+        }
+
+        private bool IsDatagramNotEmpty(Datagram datagram)
+        {
+            return datagram != Datagram.Empty;
         }
 
         private void StartMessageReceiving()
         {
-            Task.Factory.StartNew(ProcessMessageReceivingAsync, processingCancellationTokenSource.Token, TaskCreationOptions.None, taskScheduler);
+            Task.Factory.StartNew(ProcessMessageReceivingAsync, options.CancellationToken, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         private async void ProcessMessageReceivingAsync()
@@ -146,7 +156,7 @@ namespace Datagrammer
                 {
                     var socketEvent = GetOrCreateSocketEvent();
 
-                    await receivingAction.SendAsync(socketEvent, processingCancellationTokenSource.Token);
+                    await receivingAction.SendAsync(socketEvent, receivingCancellationTokenSource.Token);
                 }
             }
             catch(Exception e)
@@ -155,24 +165,24 @@ namespace Datagrammer
             }
         }
 
-        private async Task ReceiveMessageAsync(AwaitableSocketAsyncEventArgs socketEvent)
+        private async Task<Datagram> ReceiveMessageAsync(AwaitableSocketAsyncEventArgs socketEvent)
         {
+            var receivedMessage = Datagram.Empty;
+
             try
             {
                 socketEvent.SetAnyEndPoint(socket.AddressFamily);
 
                 if(socket.ReceiveFromAsync(socketEvent))
                 {
-                    await socketEvent.WaitUntilCompletedAsync(processingCancellationTokenSource.Token);
+                    await socketEvent.WaitUntilCompletedAsync(receivingCancellationTokenSource.Token);
                 }
                 else
                 {
                     socketEvent.ThrowIfNotSuccess();
                 }
 
-                var message = socketEvent.GetDatagram();
-
-                await receivingBuffer.SendAsync(message, processingCancellationTokenSource.Token);
+                receivedMessage = socketEvent.GetDatagram();
 
                 ReleaseSocketEvent(socketEvent);
             }
@@ -186,6 +196,8 @@ namespace Datagrammer
             {
                 Fault(e);
             }
+
+            return receivedMessage;
         }
 
         public Task Completion { get; private set; }
@@ -205,10 +217,8 @@ namespace Datagrammer
         private async Task AwaitAllCompletions()
         {
             await Task.WhenAll(initializationTaskSource.Task,
-                               sendingBuffer.Completion,
                                sendingAction.Completion,
-                               receivingBuffer.Completion,
-                               receivingAction.Completion);
+                               receivingBuffer.Completion);
         }
 
         private void DisposeSocketIfNeeded()
@@ -221,11 +231,9 @@ namespace Datagrammer
 
         public void Complete()
         {
-            receivingBuffer.Complete();
             sendingBuffer.Complete();
-            sendingAction.Complete();
             receivingAction.Complete();
-            processingCancellationTokenSource.Cancel();
+            receivingCancellationTokenSource.Cancel();
         }
 
         public Datagram ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target, out bool messageConsumed)
@@ -235,11 +243,9 @@ namespace Datagrammer
 
         public void Fault(Exception exception)
         {
-            receivingBuffer.Fault(exception);
             sendingBuffer.Fault(exception);
-            sendingAction.Fault(exception);
             receivingAction.Fault(exception);
-            processingCancellationTokenSource.Cancel();
+            receivingCancellationTokenSource.Cancel();
         }
 
         private async Task SendMessageAsync(Datagram message)
@@ -254,7 +260,7 @@ namespace Datagrammer
 
                 if (socket.SendToAsync(socketEvent))
                 {
-                    await socketEvent.WaitUntilCompletedAsync(processingCancellationTokenSource.Token);
+                    await socketEvent.WaitUntilCompletedAsync(options.CancellationToken);
                 }
                 else
                 {

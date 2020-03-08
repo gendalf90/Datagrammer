@@ -12,7 +12,6 @@ namespace Datagrammer.Channels
         private readonly Channel<Datagram> inputChannel;
         private readonly Channel<Datagram> outputChannel;
         private readonly CancellationTokenSource processingCancellationTokenSource;
-        private readonly TaskScheduler taskScheduler;
 
         public ChannelAdapter(IPropagatorBlock<Datagram, Datagram> datagramBlock) : this(datagramBlock, new ChannelOptions())
         {
@@ -26,8 +25,6 @@ namespace Datagrammer.Channels
             }
 
             this.datagramBlock = datagramBlock ?? throw new ArgumentNullException(nameof(datagramBlock));
-
-            taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
 
             inputChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.InputBufferCapacity)
             {
@@ -46,7 +43,7 @@ namespace Datagrammer.Channels
             
             processingCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
 
-            Task.Factory.StartNew(StartProcessing, options.CancellationToken, TaskCreationOptions.None, taskScheduler);
+            Task.Factory.StartNew(StartProcessing, options.CancellationToken, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         private void StartProcessing()

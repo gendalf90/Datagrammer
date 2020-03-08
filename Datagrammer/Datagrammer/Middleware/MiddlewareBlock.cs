@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
@@ -10,16 +9,11 @@ namespace Datagrammer.Middleware
         private readonly IPropagatorBlock<TInput, TInput> inputBuffer;
         private readonly ITargetBlock<TInput> processingAction;
         private readonly IPropagatorBlock<TOutput, TOutput> outputBuffer;
-        private readonly CancellationToken cancellationToken;
+        private readonly MiddlewareOptions options;
 
         public MiddlewareBlock(MiddlewareOptions options)
         {
-            if(options == null)
-            {
-                throw new ArgumentNullException(nameof(options));
-            }
-
-            cancellationToken = options.CancellationToken;
+            this.options = options ?? throw new ArgumentNullException(nameof(options));
 
             inputBuffer = new BufferBlock<TInput>(new DataflowBlockOptions
             {
@@ -33,7 +27,8 @@ namespace Datagrammer.Middleware
                 BoundedCapacity = options.ProcessingParallelismDegree,
                 MaxDegreeOfParallelism = options.ProcessingParallelismDegree,
                 TaskScheduler = options.TaskScheduler,
-                CancellationToken = options.CancellationToken
+                CancellationToken = options.CancellationToken,
+                SingleProducerConstrained = true
             });
 
             outputBuffer = new BufferBlock<TOutput>(new DataflowBlockOptions
@@ -43,12 +38,12 @@ namespace Datagrammer.Middleware
                 CancellationToken = options.CancellationToken
             });
 
-            inputBuffer.LinkTo(processingAction);
+            inputBuffer.LinkTo(processingAction, new DataflowLinkOptions { PropagateCompletion = true });
         }
 
         protected async Task NextAsync(TOutput value)
         {
-            await outputBuffer.SendAsync(value, cancellationToken);
+            await outputBuffer.SendAsync(value, options.CancellationToken);
         }
 
         private async Task ProcessSafeAsync(TInput value)
@@ -65,8 +60,7 @@ namespace Datagrammer.Middleware
 
         protected abstract Task ProcessAsync(TInput value);
 
-        public Task Completion => Task.WhenAll(inputBuffer.Completion,
-                                               processingAction.Completion, 
+        public Task Completion => Task.WhenAll(processingAction.Completion, 
                                                outputBuffer.Completion,
                                                AwaitCompletionAsync());
 
@@ -78,7 +72,6 @@ namespace Datagrammer.Middleware
         public void Complete()
         {
             inputBuffer.Complete();
-            processingAction.Complete();
             outputBuffer.Complete();
             OnComplete();
         }
@@ -95,7 +88,6 @@ namespace Datagrammer.Middleware
         public void Fault(Exception exception)
         {
             inputBuffer.Fault(exception);
-            processingAction.Fault(exception);
             outputBuffer.Fault(exception);
             OnFault(exception);
         }
