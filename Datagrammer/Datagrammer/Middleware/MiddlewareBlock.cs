@@ -39,6 +39,24 @@ namespace Datagrammer.Middleware
             });
 
             inputBuffer.LinkTo(processingAction, new DataflowLinkOptions { PropagateCompletion = true });
+
+            Completion = CompleteAsync();
+        }
+
+        private async Task CompleteAsync()
+        {
+            try
+            {
+                await Task.WhenAll(processingAction.Completion, InnerCompletion);
+
+                outputBuffer.Complete();
+            }
+            catch(Exception e)
+            {
+                outputBuffer.Fault(e);
+            }
+
+            await outputBuffer.Completion;
         }
 
         protected async Task NextAsync(TOutput value)
@@ -60,19 +78,13 @@ namespace Datagrammer.Middleware
 
         protected abstract Task ProcessAsync(TInput value);
 
-        public Task Completion => Task.WhenAll(processingAction.Completion, 
-                                               outputBuffer.Completion,
-                                               AwaitCompletionAsync());
+        public Task Completion { get; private set; }
 
-        protected virtual Task AwaitCompletionAsync()
-        {
-            return Task.CompletedTask;
-        }
+        protected virtual Task InnerCompletion => Task.CompletedTask;
 
         public void Complete()
         {
             inputBuffer.Complete();
-            outputBuffer.Complete();
             OnComplete();
         }
 
@@ -88,7 +100,6 @@ namespace Datagrammer.Middleware
         public void Fault(Exception exception)
         {
             inputBuffer.Fault(exception);
-            outputBuffer.Fault(exception);
             OnFault(exception);
         }
 
