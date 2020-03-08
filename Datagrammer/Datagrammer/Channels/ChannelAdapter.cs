@@ -25,14 +25,12 @@ namespace Datagrammer.Channels
 
             inputChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.InputBufferCapacity)
             {
-                SingleReader = true,
-                AllowSynchronousContinuations = true
+                SingleReader = true
             });
 
             outputChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.OutputBufferCapacity)
             {
-                SingleWriter = true,
-                AllowSynchronousContinuations = true
+                SingleWriter = true
             });
 
             Writer = inputChannel.Writer;

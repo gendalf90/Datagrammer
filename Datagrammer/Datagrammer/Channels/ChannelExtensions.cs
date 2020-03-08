@@ -1,4 +1,4 @@
-﻿using System.Threading;
+﻿using System;
 using System.Threading.Channels;
 using System.Threading.Tasks.Dataflow;
 
@@ -6,17 +6,13 @@ namespace Datagrammer.Channels
 {
     public static class ChannelExtensions
     {
-        public static Channel<Datagram> AsChannel(this IPropagatorBlock<Datagram, Datagram> propagatorBlock)
+        public static Channel<Datagram> AsChannel(this IPropagatorBlock<Datagram, Datagram> propagatorBlock, Action<ChannelOptions> configuration = null)
         {
-            return new ChannelAdapter(propagatorBlock);
-        }
+            var options = new ChannelOptions();
 
-        public static Channel<Datagram> AsChannel(this IPropagatorBlock<Datagram, Datagram> propagatorBlock, CancellationToken cancellationToken)
-        {
-            return new ChannelAdapter(propagatorBlock, new ChannelOptions
-            {
-                CancellationToken = cancellationToken
-            });
+            configuration?.Invoke(options);
+
+            return new ChannelAdapter(propagatorBlock, options);
         }
     }
 }
