@@ -250,9 +250,9 @@ namespace Tests.Integration
 
             var channel = loopbackBlock.AsChannel();
 
-            var readingTask = Task.Run(() =>
+            var readingTask = Task.Run(async () =>
             {
-                while(channel.Reader.TryRead(out Datagram message))
+                await foreach(var message in channel.Reader.ReadAllAsync())
                 {
                     receivedMessages.Add(message);
                 }
@@ -263,11 +263,9 @@ namespace Tests.Integration
                 await channel.Writer.WriteAsync(datagram);
             }
 
-            await readingTask;
-
             channel.Writer.Complete();
 
-            await channel.Reader.Completion;
+            await Task.WhenAll(channel.Reader.Completion, readingTask);
 
             loopbackBlock.Complete();
 
