@@ -36,15 +36,13 @@ namespace Datagrammer.Channels
             Writer = inputChannel.Writer;
             Reader = outputChannel.Reader;
 
-            Task.Factory.StartNew(StartProcessing, options.CancellationToken, TaskCreationOptions.None, options.TaskScheduler);
+            Task.Factory.StartNew(StartProcessing, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         private void StartProcessing()
         {
             StartInputAsync();
             StartOutputAsync();
-            CompleteDatagramBlockAsync();
-            CompleteChannelAsync();
         }
 
         private async void StartInputAsync()
@@ -53,14 +51,25 @@ namespace Datagrammer.Channels
             {
                 while (true)
                 {
-                    var datagram = await inputChannel.Reader.ReadAsync(options.CancellationToken);
-                    await datagramBlock.SendAsync(datagram, options.CancellationToken);
+                    await PerformInputAsync();
                 }
             }
-            catch (OperationCanceledException e)
+            catch (ChannelClosedException)
+            {
+                await CompleteDatagramBlockAsync();
+                await CompleteOutputChannelAsync();
+            }
+            catch (Exception e)
             {
                 FaultAll(e);
             }
+        }
+
+        private async Task PerformInputAsync()
+        {
+            var datagram = await inputChannel.Reader.ReadAsync(options.CancellationToken);
+
+            await datagramBlock.SendAsync(datagram, options.CancellationToken);
         }
 
         private async void StartOutputAsync()
@@ -69,23 +78,13 @@ namespace Datagrammer.Channels
             {
                 while (true)
                 {
-                    var datagram = await datagramBlock.ReceiveAsync(options.CancellationToken);
-                    await outputChannel.Writer.WriteAsync(datagram, options.CancellationToken);
+                    await PerformOutputAsync();
                 }
             }
-            catch (OperationCanceledException e)
+            catch (InvalidOperationException)
             {
-                FaultAll(e);
-            }
-        }
-
-        private async void CompleteDatagramBlockAsync()
-        {
-            try
-            {
-                await datagramBlock.Completion;
-
-                CompleteAll();
+                await CompleteInputChannelAsync();
+                await CompleteOutputChannelAsync();
             }
             catch (Exception e)
             {
@@ -93,7 +92,14 @@ namespace Datagrammer.Channels
             }
         }
 
-        private async void CompleteChannelAsync()
+        private async Task PerformOutputAsync()
+        {
+            var datagram = await datagramBlock.ReceiveAsync(options.CancellationToken);
+
+            await outputChannel.Writer.WriteAsync(datagram, options.CancellationToken);
+        }
+
+        private async Task CompleteDatagramBlockAsync()
         {
             try
             {
@@ -101,28 +107,38 @@ namespace Datagrammer.Channels
 
                 datagramBlock.Complete();
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 datagramBlock.Fault(e);
             }
+        }
 
+        private async Task CompleteOutputChannelAsync()
+        {
             try
             {
                 await datagramBlock.Completion;
 
-                outputChannel.Writer.Complete();
+                outputChannel.Writer.TryComplete();
             }
-            catch(Exception e)
+            catch (Exception e)
             {
-                outputChannel.Writer.Complete(e);
+                outputChannel.Writer.TryComplete(e);
             }
         }
 
-        private void CompleteAll()
+        private async Task CompleteInputChannelAsync()
         {
-            inputChannel.Writer.TryComplete();
-            outputChannel.Writer.TryComplete();
-            datagramBlock.Complete();
+            try
+            {
+                await datagramBlock.Completion;
+
+                inputChannel.Writer.TryComplete();
+            }
+            catch (Exception e)
+            {
+                inputChannel.Writer.TryComplete(e);
+            }
         }
 
         private void FaultAll(Exception e)

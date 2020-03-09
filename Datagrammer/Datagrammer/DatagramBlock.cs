@@ -72,7 +72,12 @@ namespace Datagrammer
 
             socketEventsPool = new ConcurrentQueue<AwaitableSocketAsyncEventArgs>();
 
-            Completion = CompleteAsync();
+            Completion = StartCompletion();
+        }
+
+        private Task StartCompletion()
+        {
+            return Task.Factory.StartNew(CompleteAsync, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         public void Start()

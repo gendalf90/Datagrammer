@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
@@ -27,12 +28,12 @@ namespace Datagrammer.Timeout
                 TaskScheduler = options.TaskScheduler
             });
 
-            Task.Factory.StartNew(StartProcessing, options.CancellationToken, TaskCreationOptions.None, options.TaskScheduler);
+            Task.Factory.StartNew(StartProcessing, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         private void StartProcessing()
         {
-            CompleteAsync();
+            CompleteBufferAsync();
             StartConsumingAsync();
         }
 
@@ -42,14 +43,37 @@ namespace Datagrammer.Timeout
             {
                 while(true)
                 {
-                    var value = await bufferBlock.ReceiveAsync(options.Timeout, options.CancellationToken);
-
-                    await targetBlock.SendAsync(value, options.CancellationToken);
+                    await PerformConsumingAsync();
                 }
             }
-            catch(OperationCanceledException e)
+            catch(InvalidOperationException)
+            {
+                await CompleteTargetAsync();
+            }
+            catch(Exception e)
             {
                 FaultAll(e);
+            }
+        }
+
+        private async Task PerformConsumingAsync()
+        {
+            var value = await bufferBlock.ReceiveAsync(options.Timeout, options.CancellationToken);
+
+            await targetBlock.SendAsync(value, options.CancellationToken);
+        }
+
+        private async Task CompleteTargetAsync()
+        {
+            try
+            {
+                await bufferBlock.Completion;
+
+                targetBlock.Complete();
+            }
+            catch(Exception e)
+            {
+                targetBlock.Fault(e);
             }
         }
 
@@ -60,23 +84,17 @@ namespace Datagrammer.Timeout
             bufferBlock.Complete();
         }
 
-        private void CompleteAll()
-        {
-            bufferBlock.Complete();
-            targetBlock.Complete();
-        }
-
-        private async void CompleteAsync()
+        private async void CompleteBufferAsync()
         {
             try
             {
-                await Task.WhenAny(targetBlock.Completion, bufferBlock.Completion);
+                await targetBlock.Completion;
 
-                CompleteAll();
+                bufferBlock.Complete();
             }
             catch (Exception e)
             {
-                FaultAll(e);
+                bufferBlock.Fault(e);
             }
         }
 

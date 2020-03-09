@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
@@ -40,7 +41,12 @@ namespace Datagrammer.Middleware
 
             inputBuffer.LinkTo(processingAction, new DataflowLinkOptions { PropagateCompletion = true });
 
-            Completion = CompleteAsync();
+            Completion = StartCompletion();
+        }
+
+        private Task StartCompletion()
+        {
+            return Task.Factory.StartNew(CompleteAsync, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         private async Task CompleteAsync()
