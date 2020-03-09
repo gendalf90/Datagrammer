@@ -28,16 +28,19 @@ namespace Datagrammer.Timeout
                 TaskScheduler = options.TaskScheduler
             });
 
-            Task.Factory.StartNew(StartProcessing, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
+            StartProcessing();
         }
 
         private void StartProcessing()
         {
-            CompleteBufferAsync();
-            StartConsumingAsync();
+            Task.Factory.StartNew(() =>
+            {
+                Task.Factory.StartNew(CompleteBufferAsync);
+                Task.Factory.StartNew(StartConsumingAsync);
+            }, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
-        private async void StartConsumingAsync()
+        private async Task StartConsumingAsync()
         {
             try
             {
@@ -84,7 +87,7 @@ namespace Datagrammer.Timeout
             bufferBlock.Complete();
         }
 
-        private async void CompleteBufferAsync()
+        private async Task CompleteBufferAsync()
         {
             try
             {

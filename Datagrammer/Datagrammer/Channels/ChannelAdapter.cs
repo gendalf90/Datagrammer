@@ -36,16 +36,19 @@ namespace Datagrammer.Channels
             Writer = inputChannel.Writer;
             Reader = outputChannel.Reader;
 
-            Task.Factory.StartNew(StartProcessing, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
+            StartProcessing();
         }
 
         private void StartProcessing()
         {
-            StartInputAsync();
-            StartOutputAsync();
+            Task.Factory.StartNew(() =>
+            {
+                Task.Factory.StartNew(StartInputAsync);
+                Task.Factory.StartNew(StartOutputAsync);
+            }, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
-        private async void StartInputAsync()
+        private async Task StartInputAsync()
         {
             try
             {
@@ -72,7 +75,7 @@ namespace Datagrammer.Channels
             await datagramBlock.SendAsync(datagram, options.CancellationToken);
         }
 
-        private async void StartOutputAsync()
+        private async Task StartOutputAsync()
         {
             try
             {

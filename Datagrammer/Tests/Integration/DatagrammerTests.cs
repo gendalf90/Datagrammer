@@ -250,13 +250,11 @@ namespace Tests.Integration
 
             var channel = loopbackBlock.AsChannel();
 
-            var readingTask = Task.Run(async () =>
+            var readingTask = Task.Run(() =>
             {
-                for(int i = 0; i < toSendMessages.Count; i++)
+                while(channel.Reader.TryRead(out Datagram message))
                 {
-                    var datagram = await channel.Reader.ReadAsync();
-
-                    receivedMessages.Add(datagram);
+                    receivedMessages.Add(message);
                 }
             });
 

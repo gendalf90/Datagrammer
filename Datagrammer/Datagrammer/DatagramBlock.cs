@@ -16,7 +16,7 @@ namespace Datagrammer
         private readonly IPropagatorBlock<Datagram, Datagram> sendingBuffer;
         private readonly IPropagatorBlock<Datagram, Datagram> receivingBuffer;
         private readonly ITargetBlock<Datagram> sendingAction;
-        private readonly IPropagatorBlock<AwaitableSocketAsyncEventArgs, Datagram> receivingAction;
+        private readonly ITargetBlock<AwaitableSocketAsyncEventArgs> receivingAction;
         private readonly CancellationTokenSource receivingCancellationTokenSource;
         private readonly TaskCompletionSource<int> initializationTaskSource;
         private readonly Socket socket;
@@ -61,7 +61,7 @@ namespace Datagrammer
                 SingleProducerConstrained = true
             });
 
-            receivingAction = new TransformBlock<AwaitableSocketAsyncEventArgs, Datagram>(ReceiveMessageAsync, new ExecutionDataflowBlockOptions
+            receivingAction = new ActionBlock<AwaitableSocketAsyncEventArgs>(ReceiveMessageAsync, new ExecutionDataflowBlockOptions
             {
                 BoundedCapacity = options.ReceivingParallelismDegree,
                 MaxDegreeOfParallelism = options.ReceivingParallelismDegree,
@@ -71,13 +71,6 @@ namespace Datagrammer
             });
 
             socketEventsPool = new ConcurrentQueue<AwaitableSocketAsyncEventArgs>();
-
-            Completion = StartCompletion();
-        }
-
-        private Task StartCompletion()
-        {
-            return Task.Factory.StartNew(CompleteAsync, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         public void Start()
@@ -128,40 +121,55 @@ namespace Datagrammer
 
         private void StartProcessing()
         {
-            LinkSendingAction();
-            LinkReceivingAction();
-            StartMessageReceiving();
+            Task.Factory.StartNew(() =>
+            {
+                LinkSendingAction();
+                Task.Factory.StartNew(CompleteReceivingBufferAsync);
+                Task.Factory.StartNew(DisposeSocketIfNeededAsync);
+                Task.Factory.StartNew(ProcessMessageReceivingAsync);
+
+            }, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         private void LinkSendingAction()
         {
-            sendingBuffer.LinkTo(sendingAction, new DataflowLinkOptions { PropagateCompletion = true }, IsDatagramNotEmpty);
+            sendingBuffer.LinkTo(sendingAction, new DataflowLinkOptions { PropagateCompletion = true });
         }
 
-        private void LinkReceivingAction()
+        private async Task CompleteReceivingBufferAsync()
         {
-            receivingAction.LinkTo(receivingBuffer, new DataflowLinkOptions { PropagateCompletion = true }, IsDatagramNotEmpty);
+            try
+            {
+                await receivingAction.Completion;
+
+                receivingBuffer.Complete();
+            }
+            catch(Exception e)
+            {
+                receivingBuffer.Fault(e);
+            }
         }
 
-        private bool IsDatagramNotEmpty(Datagram datagram)
+        private async Task DisposeSocketIfNeededAsync()
         {
-            return datagram != Datagram.Empty;
+            if(!options.DisposeSocketAfterCompletion)
+            {
+                return;
+            }
+
+            using (socket)
+            {
+                await Completion;
+            }
         }
 
-        private void StartMessageReceiving()
-        {
-            Task.Factory.StartNew(ProcessMessageReceivingAsync, options.CancellationToken, TaskCreationOptions.None, options.TaskScheduler);
-        }
-
-        private async void ProcessMessageReceivingAsync()
+        private async Task ProcessMessageReceivingAsync()
         {
             try
             {
                 while(true)
                 {
-                    var socketEvent = GetOrCreateSocketEvent();
-
-                    await receivingAction.SendAsync(socketEvent, receivingCancellationTokenSource.Token);
+                    await PerformMessageReceivingAsync();
                 }
             }
             catch(Exception e)
@@ -170,10 +178,15 @@ namespace Datagrammer
             }
         }
 
-        private async Task<Datagram> ReceiveMessageAsync(AwaitableSocketAsyncEventArgs socketEvent)
+        private async Task PerformMessageReceivingAsync()
         {
-            var receivedMessage = Datagram.Empty;
+            var socketEvent = GetOrCreateSocketEvent();
 
+            await receivingAction.SendAsync(socketEvent, receivingCancellationTokenSource.Token);
+        }
+
+        private async Task ReceiveMessageAsync(AwaitableSocketAsyncEventArgs socketEvent)
+        {
             try
             {
                 socketEvent.SetAnyEndPoint(socket.AddressFamily);
@@ -187,9 +200,11 @@ namespace Datagrammer
                     socketEvent.ThrowIfNotSuccess();
                 }
 
-                receivedMessage = socketEvent.GetDatagram();
+                var message = socketEvent.GetDatagram();
 
                 ReleaseSocketEvent(socketEvent);
+
+                await receivingBuffer.SendAsync(message, options.CancellationToken);
             }
             catch(SocketException e)
             {
@@ -201,38 +216,13 @@ namespace Datagrammer
             {
                 Fault(e);
             }
-
-            return receivedMessage;
         }
 
-        public Task Completion { get; private set; }
-
-        private async Task CompleteAsync()
-        {
-            try
-            {
-                await AwaitAllCompletions();
-            }
-            finally
-            {
-                DisposeSocketIfNeeded();
-            }
-        }
-
-        private async Task AwaitAllCompletions()
-        {
-            await Task.WhenAll(initializationTaskSource.Task,
-                               sendingAction.Completion,
-                               receivingBuffer.Completion);
-        }
-
-        private void DisposeSocketIfNeeded()
-        {
-            if (options.DisposeSocketAfterCompletion)
-            {
-                socket?.Dispose();
-            }
-        }
+        public Task Completion => Task.WhenAll(initializationTaskSource.Task,
+                                               sendingBuffer.Completion,
+                                               sendingAction.Completion,
+                                               receivingAction.Completion,
+                                               receivingBuffer.Completion);
 
         public void Complete()
         {
