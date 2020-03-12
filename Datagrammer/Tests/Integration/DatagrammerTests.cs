@@ -10,43 +10,157 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 using Datagrammer.Channels;
+using System.Collections.Concurrent;
 
 namespace Tests.Integration
 {
     public class DatagrammerTests
     {
-        private readonly IPEndPoint sendingEndPoint = new IPEndPoint(IPAddress.Loopback, 50001);
-        private readonly IPEndPoint receivingEndPoint = new IPEndPoint(IPAddress.Loopback, 50002);
         private readonly TimeSpan delayTime = TimeSpan.FromSeconds(3);
 
         [Fact]
-        public void StartingAndFinishing()
+        public void Initialization_WithDefaultOptions_Success()
         {
-            var datagramBlock = new DatagramBlock();
+            //Arrange
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50000)
+            });
 
+            //Act
             datagramBlock.Start();
             datagramBlock.Complete();
 
-            datagramBlock.Invoking(block => block.Start())
-                         .Should()
-                         .NotThrow();
-            datagramBlock.Invoking(block => block.Complete())
-                         .Should()
-                         .NotThrow();
+            //Assert
             datagramBlock.Awaiting(block => block.Initialization)
                          .Should()
                          .NotThrow();
+        }
+
+        [Fact]
+        public void ErrorWhileInitialization_SocketIsDisposed_InitializationAndCompletionThrowError()
+        {
+            //Arrange
+            var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+
+            socket.Dispose();
+
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                Socket = socket,
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50001)
+            });
+
+            //Act
+            datagramBlock.Start();
+
+            //Assert
+            datagramBlock.Awaiting(block => block.Initialization)
+                         .Should()
+                         .Throw<ObjectDisposedException>();
+            datagramBlock.Awaiting(block => block.Completion)
+                         .Should()
+                         .Throw<ObjectDisposedException>();
+        }
+
+        [Fact]
+        public async Task DisposeSocketAfterCompletion_DisposeFlagIsTrue_SocketIsDisposed()
+        {
+            //Arrange
+            var testSocket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                Socket = testSocket,
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50002),
+                DisposeSocketAfterCompletion = true
+            });
+
+            //Act
+            datagramBlock.Start();
+            datagramBlock.Complete();
+
+            await datagramBlock.Completion;
+
+            //Assert
+            testSocket
+                .Invoking(socket => socket.Bind(new IPEndPoint(IPAddress.Loopback, 50003)))
+                .Should()
+                .Throw<ObjectDisposedException>();
+        }
+
+        [Fact]
+        public async Task DisposeSocketAfterCompletion_DisposeFlagIsFalse_SocketIsNotDisposed()
+        {
+            //Arrange
+            var testSocket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                Socket = testSocket,
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50004),
+                DisposeSocketAfterCompletion = false
+            });
+
+            //Act
+            datagramBlock.Start();
+            datagramBlock.Complete();
+
+            await datagramBlock.Completion;
+
+            //Assert
+            testSocket
+                .Invoking(socket => socket.Bind(new IPEndPoint(IPAddress.Loopback, 50005)))
+                .Should()
+                .NotThrow<ObjectDisposedException>();
+        }
+
+        [Fact]
+        public void Completion_WithDefaultOptions_Success()
+        {
+            //Arrange
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50006)
+            });
+
+            //Act
+            datagramBlock.Start();
+            datagramBlock.Complete();
+
+            //Assert
             datagramBlock.Awaiting(block => block.Completion)
                          .Should()
                          .NotThrow();
         }
 
         [Fact]
+        public void Completion_AfterFault_ThrowError()
+        {
+            //Arrange
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50007)
+            });
+
+            //Act
+            datagramBlock.Start();
+            datagramBlock.Fault(new Exception());
+
+            //Assert
+            datagramBlock.Awaiting(block => block.Completion)
+                         .Should()
+                         .Throw<Exception>();
+        }
+
+        [Fact]
         public async Task SendingAndReceiving()
         {
+            //Arrange
+            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, 50008);
             var sendingBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = sendingEndPoint
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50009)
             });
             var toSendMessages = new List<Datagram>
             {
@@ -62,6 +176,7 @@ namespace Tests.Integration
             });
             var receivedMessages = new List<Datagram>();
 
+            //Act
             using (receivingBlock.AsObservable().Subscribe(message => receivedMessages.Add(message)))
             {
                 receivingBlock.Start();
@@ -75,6 +190,7 @@ namespace Tests.Integration
                 await Task.WhenAll(sendingBlock.Completion, receivingBlock.Completion);
             }
 
+            //Assert
             receivedMessages.Select(message => message.Buffer.ToArray())
                             .Should()
                             .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
@@ -83,9 +199,11 @@ namespace Tests.Integration
         [Fact]
         public async Task ParallelSendingAndReceiving()
         {
+            //Arrange
+            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, 50010);
             var sendingBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = sendingEndPoint,
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50011),
                 SendingBufferCapacity = 10,
                 SendingParallelismDegree = 4
             });
@@ -104,6 +222,7 @@ namespace Tests.Integration
             });
             var receivedMessages = new List<Datagram>();
 
+            //Act
             using (receivingBlock.AsObservable().Subscribe(message => receivedMessages.Add(message)))
             {
                 receivingBlock.Start();
@@ -117,68 +236,86 @@ namespace Tests.Integration
                 await Task.WhenAll(sendingBlock.Completion, receivingBlock.Completion);
             }
 
+            //Assert
             receivedMessages.Select(message => message.Buffer.ToArray())
                             .Should()
                             .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
         }
 
         [Fact]
-        public async Task UseBoundSocket()
+        public void SocketIsAlreadyBound_DoNotBindItTwice()
         {
-            using (var socket = new Socket(SocketType.Dgram, ProtocolType.Udp))
-            {
-                socket.Bind(receivingEndPoint);
+            //Arrange
+            var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+            var endPoint = new IPEndPoint(IPAddress.Loopback, 50012);
 
-                var sendingBlock = new DatagramBlock();
-                var toSendMessages = new List<Datagram>();
-
-                for (int i = 0; i < 100; i++)
-                {
-                    toSendMessages.Add(new Datagram(BitConverter.GetBytes(i), receivingEndPoint));
-                }
-
-                var receivingBlock = new DatagramBlock(new DatagramOptions
-                {
-                    Socket = socket,
-                    DisposeSocketAfterCompletion = false
-                });
-                var receivedMessages = new List<Datagram>();
-
-                using (receivingBlock.AsObservable().Subscribe(message => receivedMessages.Add(message)))
-                {
-                    receivingBlock.Start();
-                    sendingBlock.Start();
-                    await Task.WhenAll(sendingBlock.Initialization, receivingBlock.Initialization);
-                    var sendingTasks = toSendMessages.Select(sendingBlock.SendAsync);
-                    await Task.WhenAll(sendingTasks);
-                    await Task.Delay(delayTime);
-                    receivingBlock.Complete();
-                    sendingBlock.Complete();
-                    await Task.WhenAll(sendingBlock.Completion, receivingBlock.Completion);
-                }
-
-                receivedMessages.Select(message => message.Buffer.ToArray())
-                                .Should()
-                                .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
-            }
-        }
-
-        [Fact]
-        public async Task Disposing()
-        {
-            var cancellation = new CancellationTokenSource();
+            socket.Bind(endPoint);
 
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
-                CancellationToken = cancellation.Token
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50013)
             });
 
+            //Act
+            datagramBlock.Start();
+            datagramBlock.Complete();
+
+            //Assert
+            datagramBlock
+                .Awaiting(block => block.Initialization)
+                .Should()
+                .NotThrow();
+            socket.IsBound.Should().BeTrue();
+        }
+
+        [Fact]
+        public void Cancellation_CancelBeforeStarting_InitializationShouldNotThrowErrorAndCompletionThrowError()
+        {
+            //Arrange
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                CancellationToken = new CancellationToken(true),
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50014)
+            });
+
+            //Act
+            datagramBlock.Start();
+
+            //Assert
+            datagramBlock
+                .Awaiting(block => block.Initialization)
+                .Should()
+                .NotThrow();
+            datagramBlock
+                .Awaiting(block => block.Completion)
+                .Should()
+                .Throw<OperationCanceledException>();
+        }
+
+        [Fact]
+        public async Task Cancellation_CancelAfterInitialization_InitializationShouldNotThrowErrorAndCompletionThrowError()
+        {
+            //Arrange
+            var cancellationSource = new CancellationTokenSource();
+
+            var datagramBlock = new DatagramBlock(new DatagramOptions
+            {
+                CancellationToken = cancellationSource.Token,
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50015)
+            });
+
+            //Act
             datagramBlock.Start();
 
             await datagramBlock.Initialization;
 
-            cancellation.Cancel();
+            cancellationSource.Cancel();
 
+            //Assert
+            datagramBlock
+                .Awaiting(block => block.Initialization)
+                .Should()
+                .NotThrow();
             datagramBlock
                 .Awaiting(block => block.Completion)
                 .Should()
@@ -188,10 +325,13 @@ namespace Tests.Integration
         [Fact]
         public async Task SocketErrorsHandling()
         {
-            var socketErrors = new List<SocketException>();
+            //Arrange
+            var endPoint = new IPEndPoint(IPAddress.Loopback, 50016);
+            var socketErrors = new ConcurrentBag<SocketException>();
 
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
+                ListeningPoint = endPoint,
                 SocketErrorHandler = e =>
                 {
                     socketErrors.Add(e);
@@ -202,11 +342,12 @@ namespace Tests.Integration
 
             var toSendMessages = new List<Datagram>()
             {
-                new Datagram(new byte[] { 1, 2, 3 }, receivingEndPoint),
-                new Datagram(new byte[100000], receivingEndPoint),
+                new Datagram(new byte[] { 1, 2, 3 }, new IPEndPoint(IPAddress.Loopback, 50017)),
+                new Datagram(new byte[100000], endPoint),
                 new Datagram(new byte[] { 1, 2, 3 }, new byte[1000], 0)
             };
 
+            //Act
             datagramBlock.Start();
 
             await datagramBlock.Initialization;
@@ -218,6 +359,7 @@ namespace Tests.Integration
 
             datagramBlock.Complete();
 
+            //Assert
             datagramBlock.Awaiting(block => block.Completion)
                          .Should()
                          .NotThrow();
@@ -231,20 +373,23 @@ namespace Tests.Integration
         [Fact]
         public async Task UseChannelAdapter()
         {
+            //Arrange
+            var endPoint = new IPEndPoint(IPAddress.Loopback, 50018);
             var loopbackBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = receivingEndPoint
+                ListeningPoint = endPoint
             });
             var toSendMessages = new List<Datagram>
             {
-                new Datagram( new byte[] { 1, 2, 3 }, receivingEndPoint),
-                new Datagram( new byte[] { 4, 5, 6 }, receivingEndPoint),
-                new Datagram( new byte[] { 7, 8, 9 }, receivingEndPoint),
-                new Datagram( new byte[] { 10, 11, 12 }, receivingEndPoint),
-                new Datagram( new byte[] { 13, 14, 15 }, receivingEndPoint)
+                new Datagram( new byte[] { 1, 2, 3 }, endPoint),
+                new Datagram( new byte[] { 4, 5, 6 }, endPoint),
+                new Datagram( new byte[] { 7, 8, 9 }, endPoint),
+                new Datagram( new byte[] { 10, 11, 12 }, endPoint),
+                new Datagram( new byte[] { 13, 14, 15 }, endPoint)
             };
-            var receivedMessages = new List<Datagram>();
+            var receivedMessages = new ConcurrentBag<Datagram>();
 
+            //Act
             loopbackBlock.Start();
             await loopbackBlock.Initialization;
 
@@ -263,6 +408,8 @@ namespace Tests.Integration
                 await channel.Writer.WriteAsync(datagram);
             }
 
+            await Task.Delay(delayTime);
+
             channel.Writer.Complete();
 
             await Task.WhenAll(channel.Reader.Completion, readingTask);
@@ -271,6 +418,53 @@ namespace Tests.Integration
 
             await loopbackBlock.Completion;
 
+            //Assert
+            receivedMessages.Select(message => message.Buffer.ToArray())
+                            .Should()
+                            .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
+        }
+
+        [Fact]
+        public async Task ConsumeMessagesFromBufferAfterCompletion()
+        {
+            //Arrange
+            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, 50019);
+            var sendingBlock = new DatagramBlock(new DatagramOptions
+            {
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50020)
+            });
+            var toSendMessages = new List<Datagram>();
+
+            for (int i = 0; i < 10; i++)
+            {
+                toSendMessages.Add(new Datagram(BitConverter.GetBytes(i), receivingEndPoint));
+            }
+
+            var receivingBlock = new DatagramBlock(new DatagramOptions
+            {
+                ListeningPoint = receivingEndPoint,
+                ReceivingBufferCapacity = toSendMessages.Count
+            });
+            var receivedMessages = new List<Datagram>();
+
+            //Act
+            receivingBlock.Start();
+            sendingBlock.Start();
+            await Task.WhenAll(sendingBlock.Initialization, receivingBlock.Initialization);
+            var sendingTasks = toSendMessages.Select(sendingBlock.SendAsync);
+            await Task.WhenAll(sendingTasks);
+            await Task.Delay(delayTime);
+            sendingBlock.Complete();
+            receivingBlock.Complete();
+
+            for (int i = 0; i < toSendMessages.Count; i++)
+            {
+                receivedMessages.Add(await receivingBlock.ReceiveAsync());
+            }
+
+            await Task.WhenAll(sendingBlock.Completion, receivingBlock.Completion);
+
+            //Assert
             receivedMessages.Select(message => message.Buffer.ToArray())
                             .Should()
                             .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));

@@ -89,7 +89,6 @@ namespace Datagrammer
             catch(Exception e)
             {
                 FaultInitialization(e);
-                Fault(e);
             }
         }
 
@@ -116,19 +115,29 @@ namespace Datagrammer
 
         private void FaultInitialization(Exception e)
         {
+            sendingBuffer.Fault(e);
+            receivingAction.Fault(e);
+            sendingAction.Fault(e);
+            receivingBuffer.Fault(e);
+            receivingCancellationTokenSource.Cancel();
             initializationTaskSource.SetException(e);
         }
 
         private void StartProcessing()
         {
-            Task.Factory.StartNew(() =>
-            {
-                LinkSendingAction();
-                Task.Factory.StartNew(CompleteReceivingBufferAsync);
-                Task.Factory.StartNew(DisposeSocketIfNeededAsync);
-                Task.Factory.StartNew(ProcessMessageReceivingAsync);
+            LinkSendingAction();
+            StartAsyncActions(
+                CompleteReceivingBufferAsync,
+                DisposeSocketIfNeededAsync,
+                ProcessMessageReceivingAsync);
+        }
 
-            }, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
+        private void StartAsyncActions(params Func<Task>[] asyncActions)
+        {
+            foreach(var action in asyncActions)
+            {
+                Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
+            }
         }
 
         private void LinkSendingAction()
