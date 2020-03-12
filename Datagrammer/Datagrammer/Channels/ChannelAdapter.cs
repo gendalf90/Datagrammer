@@ -43,11 +43,8 @@ namespace Datagrammer.Channels
 
         private void StartProcessing()
         {
-            Task.Factory.StartNew(() =>
-            {
-                Task.Factory.StartNew(StartInputAsync);
-                Task.Factory.StartNew(StartOutputAsync);
-            }, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
+            Task.Factory.StartNew(StartInputAsync , CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
+            Task.Factory.StartNew(StartOutputAsync, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         private async Task StartInputAsync()

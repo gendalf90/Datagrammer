@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,11 +15,11 @@ namespace Datagrammer
         private readonly IPropagatorBlock<Datagram, Datagram> sendingBuffer;
         private readonly IPropagatorBlock<Datagram, Datagram> receivingBuffer;
         private readonly ITargetBlock<Datagram> sendingAction;
-        private readonly ITargetBlock<AwaitableSocketAsyncEventArgs> receivingAction;
+        private readonly ITargetBlock<object> receivingAction;
         private readonly CancellationTokenSource receivingCancellationTokenSource;
         private readonly TaskCompletionSource<int> initializationTaskSource;
         private readonly Socket socket;
-        private readonly ConcurrentQueue<AwaitableSocketAsyncEventArgs> socketEventsPool;
+        private readonly SocketEventPool socketEventPool;
 
         private int state = NotInitializedState;
 
@@ -61,7 +60,7 @@ namespace Datagrammer
                 SingleProducerConstrained = true
             });
 
-            receivingAction = new ActionBlock<AwaitableSocketAsyncEventArgs>(ReceiveMessageAsync, new ExecutionDataflowBlockOptions
+            receivingAction = new ActionBlock<object>(ReceiveMessageAsync, new ExecutionDataflowBlockOptions
             {
                 BoundedCapacity = options.ReceivingParallelismDegree,
                 MaxDegreeOfParallelism = options.ReceivingParallelismDegree,
@@ -70,7 +69,7 @@ namespace Datagrammer
                 SingleProducerConstrained = true
             });
 
-            socketEventsPool = new ConcurrentQueue<AwaitableSocketAsyncEventArgs>();
+            socketEventPool = new SocketEventPool();
         }
 
         public void Start()
@@ -129,7 +128,8 @@ namespace Datagrammer
             StartAsyncActions(
                 CompleteReceivingBufferAsync,
                 DisposeSocketIfNeededAsync,
-                ProcessMessageReceivingAsync);
+                ProcessMessageReceivingAsync,
+                DisposeSocketEventPoolAsync);
         }
 
         private void StartAsyncActions(params Func<Task>[] asyncActions)
@@ -172,6 +172,14 @@ namespace Datagrammer
             }
         }
 
+        private async Task DisposeSocketEventPoolAsync()
+        {
+            using (socketEventPool)
+            {
+                await Completion;
+            }
+        }
+
         private async Task ProcessMessageReceivingAsync()
         {
             try
@@ -189,13 +197,13 @@ namespace Datagrammer
 
         private async Task PerformMessageReceivingAsync()
         {
-            var socketEvent = GetOrCreateSocketEvent();
-
-            await receivingAction.SendAsync(socketEvent, receivingCancellationTokenSource.Token);
+            await receivingAction.SendAsync(null, receivingCancellationTokenSource.Token);
         }
 
-        private async Task ReceiveMessageAsync(AwaitableSocketAsyncEventArgs socketEvent)
+        private async Task ReceiveMessageAsync(object state)
         {
+            var socketEvent = socketEventPool.GetOrCreate();
+
             try
             {
                 socketEvent.SetAnyEndPoint(socket.AddressFamily);
@@ -211,19 +219,23 @@ namespace Datagrammer
 
                 var message = socketEvent.GetDatagram();
 
-                ReleaseSocketEvent(socketEvent);
+                socketEvent.Reset();
 
                 await receivingBuffer.SendAsync(message, options.CancellationToken);
             }
             catch(SocketException e)
             {
-                ReleaseSocketEvent(socketEvent);
+                socketEvent.Reset();
 
                 await HandleSocketErrorAsync(e);
             }
             catch(Exception e)
             {
                 Fault(e);
+            }
+            finally
+            {
+                socketEventPool.Release(socketEvent);
             }
         }
 
@@ -254,12 +266,10 @@ namespace Datagrammer
 
         private async Task SendMessageAsync(Datagram message)
         {
-            AwaitableSocketAsyncEventArgs socketEvent = null;
+            var socketEvent = socketEventPool.GetOrCreate();
 
             try
             {
-                socketEvent = GetOrCreateSocketEvent();
-
                 socketEvent.SetDatagram(message);
 
                 if (socket.SendToAsync(socketEvent))
@@ -271,11 +281,11 @@ namespace Datagrammer
                     socketEvent.ThrowIfNotSuccess();
                 }
 
-                ReleaseSocketEvent(socketEvent);
+                socketEvent.Reset();
             }
             catch (SocketException e)
             {
-                ReleaseSocketEvent(socketEvent);
+                socketEvent.Reset();
 
                 await HandleSocketErrorAsync(e);
             }
@@ -283,23 +293,10 @@ namespace Datagrammer
             {
                 Fault(e);
             }
-        }
-
-        private AwaitableSocketAsyncEventArgs GetOrCreateSocketEvent()
-        {
-            if(socketEventsPool.TryDequeue(out var socketEvent))
+            finally
             {
-                return socketEvent;
+                socketEventPool.Release(socketEvent);
             }
-
-            return new AwaitableSocketAsyncEventArgs();
-        }
-
-        private void ReleaseSocketEvent(AwaitableSocketAsyncEventArgs socketEvent)
-        {
-            socketEvent.Reset();
-
-            socketEventsPool.Enqueue(socketEvent);
         }
 
         private async Task HandleSocketErrorAsync(SocketException socketException)

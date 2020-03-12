@@ -44,16 +44,8 @@ namespace Datagrammer.Middleware
 
         private void StartProcessing()
         {
-            Task.Factory.StartNew(() =>
-            {
-                LinkProcessingAction();
-                Task.Factory.StartNew(CompleteOutputBufferAsync);
-            }, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
-        }
-
-        private void LinkProcessingAction()
-        {
             inputBuffer.LinkTo(processingAction, new DataflowLinkOptions { PropagateCompletion = true });
+            Task.Factory.StartNew(CompleteOutputBufferAsync, CancellationToken.None, TaskCreationOptions.None, options.TaskScheduler);
         }
 
         private async Task CompleteOutputBufferAsync()
