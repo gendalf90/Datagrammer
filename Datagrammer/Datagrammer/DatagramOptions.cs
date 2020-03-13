@@ -10,7 +10,7 @@ namespace Datagrammer
     {
         public Socket Socket { get; set; } = new Socket(SocketType.Dgram, ProtocolType.Udp);
 
-        public EndPoint ListeningPoint { get; set; } = new IPEndPoint(IPAddress.Any, 5000);
+        public EndPoint ListeningPoint { get; set; } = new IPEndPoint(IPAddress.Any, 50000);
 
         public TaskScheduler TaskScheduler { get; set; } = TaskScheduler.Default;
 

@@ -6,14 +6,14 @@ namespace Datagrammer.Middleware
 {
     public static class MiddlewareExtensions
     {
-        public static IPropagatorBlock<TInput, TOutput> UseAfter<TInput, TMiddlewareInput, TOutput>(this IPropagatorBlock<TInput, TMiddlewareInput> propagator, Func<TMiddlewareInput, Func<TOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)
+        public static IPropagatorBlock<TInput, TMiddlewareOutput> UseAfter<TInput, TMiddlewareInput, TMiddlewareOutput>(this IPropagatorBlock<TInput, TMiddlewareInput> propagator, Func<TMiddlewareInput, Func<TMiddlewareOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)
         {
-            return DataflowBlock.Encapsulate(propagator, propagator.UseAfter<TMiddlewareInput, TOutput>(middleware, configuration));
+            return DataflowBlock.Encapsulate(propagator, propagator.UseAfter<TMiddlewareInput, TMiddlewareOutput>(middleware, configuration));
         }
 
-        public static IPropagatorBlock<TInput, TOutput> UseBefore<TInput, TMiddlewareOutput, TOutput>(this IPropagatorBlock<TMiddlewareOutput, TOutput> propagator, Func<TInput, Func<TMiddlewareOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)
+        public static IPropagatorBlock<TMiddlewareInput, TOutput> UseBefore<TMiddlewareInput, TMiddlewareOutput, TOutput>(this IPropagatorBlock<TMiddlewareOutput, TOutput> propagator, Func<TMiddlewareInput, Func<TMiddlewareOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)
         {
-            return DataflowBlock.Encapsulate(propagator.UseBefore<TInput, TMiddlewareOutput>(middleware, configuration), propagator);
+            return DataflowBlock.Encapsulate(propagator.UseBefore<TMiddlewareInput, TMiddlewareOutput>(middleware, configuration), propagator);
         }
 
         public static ISourceBlock<TOutput> UseAfter<TInput, TOutput>(this ISourceBlock<TInput> source, Func<TInput, Func<TOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)

@@ -6,30 +6,30 @@ using System.Threading.Tasks.Dataflow;
 
 namespace Datagrammer.Channels
 {
-    public sealed class ChannelAdapter : Channel<Datagram>
+    public sealed class ChannelAdapter<T> : Channel<T>
     {
-        private readonly IPropagatorBlock<Datagram, Datagram> datagramBlock;
-        private readonly Channel<Datagram> inputChannel;
-        private readonly Channel<Datagram> outputChannel;
+        private readonly IPropagatorBlock<T, T> datagramBlock;
+        private readonly Channel<T> inputChannel;
+        private readonly Channel<T> outputChannel;
         private readonly ChannelOptions options;
 
-        public ChannelAdapter(IPropagatorBlock<Datagram, Datagram> datagramBlock) : this(datagramBlock, new ChannelOptions())
+        public ChannelAdapter(IPropagatorBlock<T, T> datagramBlock) : this(datagramBlock, new ChannelOptions())
         {
         }
 
-        public ChannelAdapter(IPropagatorBlock<Datagram, Datagram> datagramBlock, ChannelOptions options)
+        public ChannelAdapter(IPropagatorBlock<T, T> datagramBlock, ChannelOptions options)
         {
             this.options = options ?? throw new ArgumentNullException(nameof(options));
 
             this.datagramBlock = datagramBlock ?? throw new ArgumentNullException(nameof(datagramBlock));
 
-            inputChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.InputBufferCapacity)
+            inputChannel = Channel.CreateBounded<T>(new BoundedChannelOptions(options.InputBufferCapacity)
             {
                 SingleReader = true,
                 AllowSynchronousContinuations = true
             });
 
-            outputChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.OutputBufferCapacity)
+            outputChannel = Channel.CreateBounded<T>(new BoundedChannelOptions(options.OutputBufferCapacity)
             {
                 SingleWriter = true,
                 AllowSynchronousContinuations = true
