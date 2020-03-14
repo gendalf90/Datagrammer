@@ -17,7 +17,7 @@ namespace Tests.UseCases
         {
             var datagrammer = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50021)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
 
             datagrammer.Start();
@@ -32,7 +32,7 @@ namespace Tests.UseCases
         [Fact(DisplayName = "simple sending and receiving")]
         public async Task CaseTwo()
         {
-            var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, 50022);
+            var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var receivedBytes = new ConcurrentBag<byte[]>();
 
             var datagramBlock = new DatagramBlock(new DatagramOptions
@@ -71,7 +71,7 @@ namespace Tests.UseCases
         [Fact(DisplayName = "simple sending and receiving with dataflow way")]
         public async Task CaseThree()
         {
-            var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, 50023);
+            var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var receivedBytes = new ConcurrentBag<byte[]>();
 
             var datagramBlock = new DatagramBlock(new DatagramOptions
@@ -112,7 +112,7 @@ namespace Tests.UseCases
         [Fact(DisplayName = "simple sending and receiving with reactive way")]
         public async Task CaseFour()
         {
-            var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, 50024);
+            var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var receivedBytes = new BlockingCollection<byte[]>();
 
             var datagramBlock = new DatagramBlock(new DatagramOptions
@@ -160,7 +160,7 @@ namespace Tests.UseCases
         [Fact(DisplayName = "simple sending and receiving with channel way")]
         public async Task CaseFive()
         {
-            var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, 50025);
+            var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var receivedBytes = new ConcurrentBag<byte[]>();
 
             var datagramBlock = new DatagramBlock(new DatagramOptions

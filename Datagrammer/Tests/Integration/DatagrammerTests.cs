@@ -24,7 +24,7 @@ namespace Tests.Integration
             //Arrange
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50000)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
 
             //Act
@@ -48,7 +48,7 @@ namespace Tests.Integration
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
                 Socket = socket,
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50001)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
 
             //Act
@@ -72,7 +72,7 @@ namespace Tests.Integration
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
                 Socket = testSocket,
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50002),
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext()),
                 DisposeSocketAfterCompletion = true
             });
 
@@ -98,7 +98,7 @@ namespace Tests.Integration
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
                 Socket = testSocket,
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50004),
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext()),
                 DisposeSocketAfterCompletion = false
             });
 
@@ -110,7 +110,7 @@ namespace Tests.Integration
 
             //Assert
             testSocket
-                .Invoking(socket => socket.Bind(new IPEndPoint(IPAddress.Loopback, 50005)))
+                .Invoking(socket => socket.Bind(new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())))
                 .Should()
                 .NotThrow<ObjectDisposedException>();
         }
@@ -121,7 +121,7 @@ namespace Tests.Integration
             //Arrange
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50006)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
 
             //Act
@@ -140,7 +140,7 @@ namespace Tests.Integration
             //Arrange
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50007)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
 
             //Act
@@ -157,10 +157,10 @@ namespace Tests.Integration
         public async Task SendingAndReceiving()
         {
             //Arrange
-            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, 50008);
+            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var sendingBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50009)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
             var toSendMessages = new List<Datagram>
             {
@@ -200,10 +200,10 @@ namespace Tests.Integration
         public async Task ParallelSendingAndReceiving()
         {
             //Arrange
-            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, 50010);
+            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var sendingBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50011),
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext()),
                 SendingBufferCapacity = 10,
                 SendingParallelismDegree = 4
             });
@@ -247,13 +247,13 @@ namespace Tests.Integration
         {
             //Arrange
             var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-            var endPoint = new IPEndPoint(IPAddress.Loopback, 50012);
+            var endPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
 
             socket.Bind(endPoint);
 
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50013)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
 
             //Act
@@ -275,7 +275,7 @@ namespace Tests.Integration
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
                 CancellationToken = new CancellationToken(true),
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50014)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
 
             //Act
@@ -301,7 +301,7 @@ namespace Tests.Integration
             var datagramBlock = new DatagramBlock(new DatagramOptions
             {
                 CancellationToken = cancellationSource.Token,
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50015)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
 
             //Act
@@ -326,7 +326,7 @@ namespace Tests.Integration
         public async Task SocketErrorsHandling()
         {
             //Arrange
-            var endPoint = new IPEndPoint(IPAddress.Loopback, 50016);
+            var endPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var socketErrors = new ConcurrentBag<SocketException>();
 
             var datagramBlock = new DatagramBlock(new DatagramOptions
@@ -342,7 +342,7 @@ namespace Tests.Integration
 
             var toSendMessages = new List<Datagram>()
             {
-                new Datagram(new byte[] { 1, 2, 3 }, new IPEndPoint(IPAddress.Loopback, 50017)),
+                new Datagram(new byte[] { 1, 2, 3 }, new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())),
                 new Datagram(new byte[100000], endPoint),
                 new Datagram(new byte[] { 1, 2, 3 }, new byte[1000], 0)
             };
@@ -374,7 +374,7 @@ namespace Tests.Integration
         public async Task UseChannelAdapter()
         {
             //Arrange
-            var endPoint = new IPEndPoint(IPAddress.Loopback, 50018);
+            var endPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var loopbackBlock = new DatagramBlock(new DatagramOptions
             {
                 ListeningPoint = endPoint
@@ -428,10 +428,10 @@ namespace Tests.Integration
         public async Task ConsumeMessagesFromBufferAfterCompletion()
         {
             //Arrange
-            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, 50019);
+            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var sendingBlock = new DatagramBlock(new DatagramOptions
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, 50020)
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
             });
             var toSendMessages = new List<Datagram>();
 
@@ -468,6 +468,48 @@ namespace Tests.Integration
             receivedMessages.Select(message => message.Buffer.ToArray())
                             .Should()
                             .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
+        }
+
+        [Fact]
+        public async Task CancelWhileSending_SuccessfulCancellation()
+        {
+            //Arrange
+            var cancellationSource = new CancellationTokenSource();
+            var receivingEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+            var sendingBlock = new DatagramBlock(new DatagramOptions
+            {
+                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext()),
+                CancellationToken = cancellationSource.Token
+            });
+            var receivingBlock = new DatagramBlock(new DatagramOptions
+            {
+                ListeningPoint = receivingEndPoint,
+                CancellationToken = cancellationSource.Token
+            });
+            receivingBlock.LinkTo(DataflowBlock.NullTarget<Datagram>());
+
+            //Act
+            receivingBlock.Start();
+            sendingBlock.Start();
+            await Task.WhenAll(sendingBlock.Initialization, receivingBlock.Initialization);
+
+            for (int i = 0; i < 5; i++)
+            {
+                await sendingBlock.SendAsync(new Datagram(BitConverter.GetBytes(i), receivingEndPoint));
+            }
+
+            cancellationSource.Cancel();
+            await Task.Delay(delayTime);
+
+            //Assert
+            sendingBlock
+                .Awaiting(block => block.Completion)
+                .Should()
+                .Throw<OperationCanceledException>();
+            receivingBlock
+                .Awaiting(block => block.Completion)
+                .Should()
+                .Throw<OperationCanceledException>();
         }
     }
 }

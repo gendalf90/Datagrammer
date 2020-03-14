@@ -17,7 +17,11 @@ namespace Tests.UseCases
 
             protected override async Task ProcessAsync(int value)
             {
-                await NextAsync(value.ToString());
+                await NextAsync(value.ToString()); //send data to next block. you can modify it before. 
+                                                   //or you can just send current data and process it below. 
+                                                   //don't call the method if you want to break current request pipeline.
+                                                   //it just puts the data to an internal source buffer, all middlewares work in parallel
+
             }
         }
 
@@ -116,10 +120,10 @@ namespace Tests.UseCases
         public async Task CaseFour()
         {
             var chain = new TransformBlock<string, int>(value => 3)
-                .UseBefore<int, string, int>(async (value, next) => await next("2"))
-                .UseAfter<int, int, string>(async (value, next) => await next("4"))
-                .UseBefore<bool, int, string>(async (value, next) => await next(1))
-                .UseAfter<bool, string, int>(async (value, next) => await next(5));
+                .UseBefore<object, string, int>(async (value, next) => await next("2")) //value is object, result is string
+                .UseAfter<object, int, string>(async (value, next) => await next("4")) //value is int, result is string
+                .UseBefore<bool, object, string>(async (value, next) => await next(1)) //value is bool, result is object
+                .UseAfter<bool, string, int>(async (value, next) => await next(5)); //value is string, result is int
 
             await chain.SendAsync(true);
 

@@ -6,12 +6,12 @@ namespace Datagrammer.Middleware
 {
     public static class MiddlewareExtensions
     {
-        public static IPropagatorBlock<TInput, TMiddlewareOutput> UseAfter<TInput, TMiddlewareInput, TMiddlewareOutput>(this IPropagatorBlock<TInput, TMiddlewareInput> propagator, Func<TMiddlewareInput, Func<TMiddlewareOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)
+        public static IPropagatorBlock<TResultInput, TMiddlewareOutput> UseAfter<TResultInput, TMiddlewareInput, TMiddlewareOutput>(this IPropagatorBlock<TResultInput, TMiddlewareInput> propagator, Func<TMiddlewareInput, Func<TMiddlewareOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)
         {
             return DataflowBlock.Encapsulate(propagator, propagator.UseAfter<TMiddlewareInput, TMiddlewareOutput>(middleware, configuration));
         }
 
-        public static IPropagatorBlock<TMiddlewareInput, TOutput> UseBefore<TMiddlewareInput, TMiddlewareOutput, TOutput>(this IPropagatorBlock<TMiddlewareOutput, TOutput> propagator, Func<TMiddlewareInput, Func<TMiddlewareOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)
+        public static IPropagatorBlock<TMiddlewareInput, TResultOutput> UseBefore<TMiddlewareInput, TMiddlewareOutput, TResultOutput>(this IPropagatorBlock<TMiddlewareOutput, TResultOutput> propagator, Func<TMiddlewareInput, Func<TMiddlewareOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)
         {
             return DataflowBlock.Encapsulate(propagator.UseBefore<TMiddlewareInput, TMiddlewareOutput>(middleware, configuration), propagator);
         }
