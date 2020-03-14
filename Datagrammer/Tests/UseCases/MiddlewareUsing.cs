@@ -25,7 +25,7 @@ namespace Tests.UseCases
             }
         }
 
-        [Fact(DisplayName = "simple modification middleware")]
+        [Fact(DisplayName = "simple transformation middleware")]
         public async Task CaseOne()
         {
             var buffer = new BufferBlock<string>();

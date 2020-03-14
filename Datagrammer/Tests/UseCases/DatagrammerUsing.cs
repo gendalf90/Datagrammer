@@ -157,6 +157,9 @@ namespace Tests.UseCases
             });
         }
 
+        /// <summary>
+        /// https://docs.microsoft.com/en-us/dotnet/api/system.threading.channels
+        /// </summary>
         [Fact(DisplayName = "simple sending and receiving with channel way")]
         public async Task CaseFive()
         {
