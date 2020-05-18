@@ -1,10 +1,12 @@
-﻿using System;
+﻿using Datagrammer.Dataflow.Middleware;
+using System;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
-namespace Datagrammer.Middleware
+namespace Datagrammer.Dataflow
 {
-    public static class MiddlewareExtensions
+    public static class DataflowExtensions
     {
         public static IPropagatorBlock<TResultInput, TMiddlewareOutput> UseAfter<TResultInput, TMiddlewareInput, TMiddlewareOutput>(this IPropagatorBlock<TResultInput, TMiddlewareInput> propagator, Func<TMiddlewareInput, Func<TMiddlewareOutput, Task>, Task> middleware, Action<MiddlewareOptions> configuration = null)
         {
@@ -40,6 +42,15 @@ namespace Datagrammer.Middleware
             actionMiddleware.LinkTo(target, new DataflowLinkOptions { PropagateCompletion = true });
 
             return actionMiddleware;
+        }
+
+        public static IPropagatorBlock<Datagram, Datagram> ToDataflowBlock(this Channel<Datagram> channel, Action<DatagramBlockOptions> configuration = null)
+        {
+            var options = new DatagramBlockOptions();
+
+            configuration?.Invoke(options);
+
+            return new DatagramBlock(channel, options);
         }
     }
 }

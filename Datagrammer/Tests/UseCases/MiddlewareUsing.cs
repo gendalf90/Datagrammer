@@ -1,9 +1,10 @@
 ﻿using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using Xunit;
-using Datagrammer.Middleware;
 using FluentAssertions;
 using System.Collections.Generic;
+using Datagrammer.Dataflow.Middleware;
+using Datagrammer.Dataflow;
 
 namespace Tests.UseCases
 {

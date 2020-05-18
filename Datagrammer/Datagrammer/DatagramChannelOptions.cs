@@ -24,6 +24,6 @@ namespace Datagrammer
 
         public BoundedChannelFullMode ReceivingFullMode { get; set; } = BoundedChannelFullMode.Wait;
 
-        public bool DisposeSocketAfterCompletion { get; set; } = true;
+        public bool DisposeSocket { get; set; } = true;
     }
 }

@@ -30,9 +30,9 @@ namespace Datagrammer.SocketEventArgs
                 throw new SocketException((int)SocketError.MessageSize);
             }
 
-            if(MemoryMarshal.TryGetArray(datagram.Buffer, out var bufferSegment))
+            if(MemoryMarshal.TryGetArray(datagram.Buffer, out var arraySegment))
             {
-                SetBuffer(bufferSegment);
+                SetBuffer(arraySegment);
             }
             else
             {

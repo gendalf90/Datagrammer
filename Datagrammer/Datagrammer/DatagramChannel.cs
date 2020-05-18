@@ -41,7 +41,7 @@ namespace Datagrammer
             taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
 
             cancellationToken = options.CancellationToken;
-            disposeSocketAfterCompletion = options.DisposeSocketAfterCompletion;
+            disposeSocketAfterCompletion = options.DisposeSocket;
 
             sendingChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.SendingBufferCapacity)
             {
@@ -62,6 +62,11 @@ namespace Datagrammer
 
             Writer = sendingChannel.Writer;
             Reader = receivingChannel.Reader;
+
+            StartAsyncActions(
+                DisposeSocketIfNeededAsync,
+                CancelIfNeededAsync,
+                CompleteReceivingAsync);
         }
 
         public void Start()
@@ -74,7 +79,9 @@ namespace Datagrammer
             try
             {
                 StartClientListening();
-                StartProcessing();
+                StartAsyncActions(
+                    StartSendingAsync,
+                    StartReceivingAsync);
             }
             catch (Exception e)
             {
@@ -94,16 +101,6 @@ namespace Datagrammer
             {
                 socket.Bind(listeningPoint);
             }
-        }
-
-        private void StartProcessing()
-        {
-            StartAsyncActions(
-                DisposeSocketIfNeededAsync,
-                CancelIfNeededAsync,
-                CompleteReceivingAsync,
-                StartSendingAsync,
-                StartReceivingAsync);
         }
 
         private async Task StartReceivingAsync()

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
 
-namespace Datagrammer.Middleware
+namespace Datagrammer.Dataflow.Middleware
 {
     public sealed class ActionMiddlewareBlock<TInput, TOutput> : MiddlewareBlock<TInput, TOutput>
     {
