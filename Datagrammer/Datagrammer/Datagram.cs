@@ -1,43 +1,14 @@
 ﻿using System;
-using System.Net;
 
 namespace Datagrammer
 {
     public readonly struct Datagram : IEquatable<Datagram>
     {
-        private readonly IPAddress cachedIpAddress;
-
         public Datagram(ReadOnlyMemory<byte> buffer, ReadOnlyMemory<byte> address, int port)
         {
             Buffer = buffer;
             Address = address;
             Port = port;
-            cachedIpAddress = null;
-        }
-
-        public Datagram(byte[] buffer, IPEndPoint endPoint)
-        {
-            Buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
-
-            if (endPoint == null)
-            {
-                throw new ArgumentNullException(nameof(endPoint));
-            }
-            
-            Address = endPoint.Address.GetAddressBytes();
-            Port = endPoint.Port;
-            cachedIpAddress = endPoint.Address;
-        }
-
-        public Datagram(byte[] buffer, string address, int port)
-        {
-            Buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
-
-            var parsedIpAddress = IPAddress.Parse(address);
-
-            Address = parsedIpAddress.GetAddressBytes();
-            Port = port;
-            cachedIpAddress = parsedIpAddress;
         }
 
         public ReadOnlyMemory<byte> Buffer { get; }
@@ -60,7 +31,11 @@ namespace Datagrammer
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(Buffer, Address, Port);
+            return new HashCodeBuilder()
+                .Combine(Buffer.Span)
+                .Combine(Address.Span)
+                .Combine(Port)
+                .Build();
         }
 
         public static bool operator ==(Datagram left, Datagram right)
@@ -74,26 +49,5 @@ namespace Datagrammer
         }
 
         public static Datagram Empty { get; } = new Datagram();
-
-        internal bool TryGetIPAddress(out IPAddress address)
-        {
-            address = cachedIpAddress;
-
-            if(address != null)
-            {
-                return true;
-            }
-
-            try
-            {
-                address = new IPAddress(Address.Span);
-            }
-            catch
-            {
-                return false;
-            }
-
-            return true;
-        }
     }
 }
