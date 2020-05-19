@@ -7,6 +7,7 @@ using System.Threading.Tasks.Dataflow;
 using Xunit;
 using System;
 using Datagrammer.Dataflow;
+using System.Collections.Generic;
 
 namespace Tests.UseCases
 {
@@ -32,7 +33,6 @@ namespace Tests.UseCases
             {
                 opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
-
             var dataflowBlock = channel.ToDataflowBlock(opt =>
             {
                 opt.CompleteChannel = true;
@@ -112,8 +112,7 @@ namespace Tests.UseCases
             dataflowBlock.Complete();
             channel.Writer.Complete();
 
-            await dataflowBlock.Completion;
-            await channel.Reader.Completion;
+            await Task.WhenAll(dataflowBlock.Completion, channel.Reader.Completion);
 
             receivedBytes.Should().BeEquivalentTo(new[]
             {
@@ -127,16 +126,13 @@ namespace Tests.UseCases
         public async Task CaseFive()
         {
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            var receivedBytes = new BlockingCollection<byte[]>();
+            var receivedBytes = new List<byte[]>();
 
             var channel = DatagramChannel.Start(opt =>
             {
                 opt.ListeningPoint = loopbackEndPoint;
             });
-            var dataflowBlock = channel.ToDataflowBlock(opt =>
-            {
-                opt.CompleteChannel = true;
-            });
+            var dataflowBlock = channel.ToDataflowBlock();
             var observer = dataflowBlock.AsObserver();
 
             //It is more convenient with the Reactive Extensions using
@@ -146,7 +142,7 @@ namespace Tests.UseCases
             },
             () =>
             {
-                receivedBytes.CompleteAdding();
+                channel.Writer.Complete();
             });
 
             for (byte i = 0; i < 3; i++)
