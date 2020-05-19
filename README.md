@@ -1,6 +1,7 @@
  # Datagrammer
 
-Datagrammer is lightweight asynchronous Udp client based on Dataflow library. You can read this [article](https://docs.microsoft.com/en-us/dotnet/standard/parallel-programming/dataflow-task-parallel-library) if you want to know more about Dataflow.
+Datagrammer is lightweight asynchronous Udp client based on Channels and Dataflow library. You can read this [article](https://docs.microsoft.com/en-us/dotnet/standard/parallel-programming/dataflow-task-parallel-library) if you want to know more about Dataflow.
+And this [article](https://devblogs.microsoft.com/dotnet/an-introduction-to-system-threading-channels/) about Channels.
 Datagrammer helps you to build your own data flows which includes udp packets sending and receiving.
 You can use it separately of Dataflow with Reactive extensions so Datagrammer has IObservable interface compatibility.
 You can know more about Rx [here](http://reactivex.io/).
