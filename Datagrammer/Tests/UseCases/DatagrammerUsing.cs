@@ -15,12 +15,11 @@ namespace Tests.UseCases
         [Fact(DisplayName = "simple starting and completion")]
         public async Task CaseOne()
         {
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
 
-            channel.Start();
             channel.Writer.Complete();
 
             await channel.Reader.Completion;
@@ -29,12 +28,10 @@ namespace Tests.UseCases
         [Fact(DisplayName = "simple starting and completion with dataflow way")]
         public async Task CaseTwo()
         {
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
-
-            channel.Start();
 
             var dataflowBlock = channel.ToDataflowBlock(opt =>
             {
@@ -53,14 +50,12 @@ namespace Tests.UseCases
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var receivedBytes = new ConcurrentBag<byte[]>();
 
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = loopbackEndPoint,
-                ReceivingBufferCapacity = 3,
-                SendingBufferCapacity = 3
+                opt.ListeningPoint = loopbackEndPoint;
+                opt.ReceivingBufferCapacity = 3;
+                opt.SendingBufferCapacity = 3;
             });
-
-            channel.Start();
 
             for (byte i = 0; i < 3; i++)
             {
@@ -92,17 +87,15 @@ namespace Tests.UseCases
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var receivedBytes = new ConcurrentBag<byte[]>();
 
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = loopbackEndPoint
+                opt.ListeningPoint = loopbackEndPoint;
             });
             var dataflowBlock = channel.ToDataflowBlock(opt =>
             {
                 opt.ReceivingBufferCapacity = 3;
                 opt.SendingBufferCapacity = 3;
             });
-
-            channel.Start();
 
             for (byte i = 0; i < 3; i++)
             {
@@ -136,9 +129,9 @@ namespace Tests.UseCases
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var receivedBytes = new BlockingCollection<byte[]>();
 
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = loopbackEndPoint
+                opt.ListeningPoint = loopbackEndPoint;
             });
             var dataflowBlock = channel.ToDataflowBlock(opt =>
             {
@@ -155,8 +148,6 @@ namespace Tests.UseCases
             {
                 receivedBytes.CompleteAdding();
             });
-
-            channel.Start();
 
             for (byte i = 0; i < 3; i++)
             {

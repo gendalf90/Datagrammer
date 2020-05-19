@@ -13,14 +13,9 @@ namespace Datagrammer.Dataflow
         private readonly BufferBlock<Datagram> receivingBuffer;
         private readonly Channel<Datagram> channel;
         private readonly TaskScheduler taskScheduler;
-        private readonly CancellationTokenSource cancellationSource;
         private readonly bool needChannelCompletion;
 
-        public DatagramBlock(Channel<Datagram> channel) : this(channel, new DatagramBlockOptions())
-        {
-        }
-
-        public DatagramBlock(Channel<Datagram> channel, DatagramBlockOptions options)
+        private DatagramBlock(Channel<Datagram> channel, DatagramBlockOptions options)
         {
             if(options == null)
             {
@@ -31,7 +26,6 @@ namespace Datagrammer.Dataflow
 
             taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
 
-            cancellationSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
             needChannelCompletion = options.CompleteChannel;
 
             sendingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
@@ -44,26 +38,45 @@ namespace Datagrammer.Dataflow
             receivingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
             {
                 BoundedCapacity = options.ReceivingBufferCapacity,
-                TaskScheduler = options.TaskScheduler,
-                CancellationToken = options.CancellationToken
+                TaskScheduler = options.TaskScheduler
             });
+        }
 
+        public static DatagramBlock Start(Channel<Datagram> channel, Action<DatagramBlockOptions> configuration = null)
+        {
+            var options = new DatagramBlockOptions();
+
+            configuration?.Invoke(options);
+
+            var datagramBlock = new DatagramBlock(channel, options);
+
+            datagramBlock.Start();
+
+            return datagramBlock;
+        }
+
+        private void Start()
+        {
             StartAsyncActions(
                 CompleteByChannelAsync,
                 CompleteChannelIfNeededAsync,
+                CompleteReceivingAsync,
                 StartMessageReceivingAsync,
                 StartMessageSendingAsync);
         }
 
         private async Task StartMessageSendingAsync()
         {
-            while(await sendingBuffer.OutputAvailableAsync(cancellationSource.Token))
+            while (await sendingBuffer.OutputAvailableAsync())
             {
-                while(sendingBuffer.TryReceive(out var message))
+                while (sendingBuffer.TryReceive(out var message))
                 {
-                    if(!channel.Writer.TryWrite(message))
+                    while(!channel.Writer.TryWrite(message))
                     {
-                        await channel.Writer.WriteAsync(message, cancellationSource.Token);
+                        if(!await channel.Writer.WaitToWriteAsync())
+                        {
+                            break;
+                        }
                     }
                 }
             }
@@ -71,13 +84,13 @@ namespace Datagrammer.Dataflow
 
         private async Task StartMessageReceivingAsync()
         {
-            while(await channel.Reader.WaitToReadAsync(cancellationSource.Token))
+            while(await channel.Reader.WaitToReadAsync())
             {
                 while(channel.Reader.TryRead(out var message))
                 {
                     if(!receivingBuffer.Post(message))
                     {
-                        await receivingBuffer.SendAsync(message, cancellationSource.Token);
+                        await receivingBuffer.SendAsync(message);
                     }
                 }
             }
@@ -94,6 +107,20 @@ namespace Datagrammer.Dataflow
             catch(Exception e)
             {
                 Fault(e);
+            }
+        }
+
+        private async Task CompleteReceivingAsync()
+        {
+            try
+            {
+                await sendingBuffer.Completion;
+
+                receivingBuffer.Complete();
+            }
+            catch (Exception e)
+            {
+                (receivingBuffer as IDataflowBlock).Fault(e);
             }
         }
 
@@ -129,15 +156,11 @@ namespace Datagrammer.Dataflow
         public void Complete()
         {
             sendingBuffer.Complete();
-            receivingBuffer.Complete();
-            cancellationSource.Cancel();
         }
 
         public void Fault(Exception exception)
         {
             (sendingBuffer as IDataflowBlock).Fault(exception);
-            (receivingBuffer as IDataflowBlock).Fault(exception);
-            cancellationSource.Cancel();
         }
 
         public Datagram ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target, out bool messageConsumed)

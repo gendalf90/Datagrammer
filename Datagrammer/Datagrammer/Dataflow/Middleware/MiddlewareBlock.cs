@@ -9,7 +9,6 @@ namespace Datagrammer.Dataflow.Middleware
     {
         private readonly ITargetBlock<TInput> processingAction;
         private readonly IPropagatorBlock<TOutput, TOutput> outputBuffer;
-        private readonly TaskScheduler taskScheduler;
         private readonly CancellationToken cancellationToken;
 
         public MiddlewareBlock(MiddlewareOptions options)
@@ -19,11 +18,14 @@ namespace Datagrammer.Dataflow.Middleware
                 throw new ArgumentNullException(nameof(options));
             }
 
-            taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
+            if(options.TaskScheduler == null)
+            {
+                throw new ArgumentNullException(nameof(options.TaskScheduler));
+            }
 
             cancellationToken = options.CancellationToken;
 
-            processingAction = new ActionBlock<TInput>(ProcessSafeAsync, new ExecutionDataflowBlockOptions
+            processingAction = new ActionBlock<TInput>(ProcessAsync, new ExecutionDataflowBlockOptions
             {
                 BoundedCapacity = options.InputBufferCapacity,
                 MaxDegreeOfParallelism = options.ProcessingParallelismDegree,
@@ -34,47 +36,25 @@ namespace Datagrammer.Dataflow.Middleware
             outputBuffer = new BufferBlock<TOutput>(new DataflowBlockOptions
             {
                 BoundedCapacity = options.OutputBufferCapacity,
-                TaskScheduler = options.TaskScheduler,
-                CancellationToken = options.CancellationToken
+                TaskScheduler = options.TaskScheduler
             });
 
-            StartProcessing();
-        }
-
-        private void StartProcessing()
-        {
-            Task.Factory.StartNew(CompleteOutputBufferAsync, CancellationToken.None, TaskCreationOptions.None, taskScheduler);
-        }
-
-        private async Task CompleteOutputBufferAsync()
-        {
-            try
+            Task.WhenAll(processingAction.Completion, InnerCompletion).ContinueWith(task =>
             {
-                await Task.WhenAll(processingAction.Completion, InnerCompletion);
-
-                outputBuffer.Complete();
-            }
-            catch(Exception e)
-            {
-                outputBuffer.Fault(e);
-            }
+                if (task.Exception == null)
+                {
+                    outputBuffer.Complete();
+                }
+                else
+                {
+                    outputBuffer.Fault(task.Exception);
+                }
+            }, options.TaskScheduler);
         }
 
         protected async Task NextAsync(TOutput value)
         {
             await outputBuffer.SendAsync(value, cancellationToken);
-        }
-
-        private async Task ProcessSafeAsync(TInput value)
-        {
-            try
-            {
-                await ProcessAsync(value);
-            }
-            catch(Exception e)
-            {
-                Fault(e);
-            }
         }
 
         protected abstract Task ProcessAsync(TInput value);
@@ -83,21 +63,10 @@ namespace Datagrammer.Dataflow.Middleware
                                                processingAction.Completion,
                                                outputBuffer.Completion);
 
-        protected virtual Task InnerCompletion => Task.CompletedTask;
-
         public void Complete()
         {
             processingAction.Complete();
             OnComplete();
-        }
-
-        protected virtual void OnComplete()
-        {
-        }
-
-        public TOutput ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<TOutput> target, out bool messageConsumed)
-        {
-            return outputBuffer.ConsumeMessage(messageHeader, target, out messageConsumed);
         }
 
         public void Fault(Exception exception)
@@ -106,8 +75,19 @@ namespace Datagrammer.Dataflow.Middleware
             OnFault(exception);
         }
 
+        protected virtual Task InnerCompletion => Task.CompletedTask;
+
+        protected virtual void OnComplete()
+        {
+        }
+
         protected virtual void OnFault(Exception exception)
         {
+        }
+
+        public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, TInput messageValue, ISourceBlock<TInput> source, bool consumeToAccept)
+        {
+            return processingAction.OfferMessage(messageHeader, messageValue, source, consumeToAccept);
         }
 
         public IDisposable LinkTo(ITargetBlock<TOutput> target, DataflowLinkOptions linkOptions)
@@ -115,9 +95,9 @@ namespace Datagrammer.Dataflow.Middleware
             return outputBuffer.LinkTo(target, linkOptions);
         }
 
-        public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, TInput messageValue, ISourceBlock<TInput> source, bool consumeToAccept)
+        public TOutput ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<TOutput> target, out bool messageConsumed)
         {
-            return processingAction.OfferMessage(messageHeader, messageValue, source, consumeToAccept);
+            return outputBuffer.ConsumeMessage(messageHeader, target, out messageConsumed);
         }
 
         public void ReleaseReservation(DataflowMessageHeader messageHeader, ITargetBlock<TOutput> target)

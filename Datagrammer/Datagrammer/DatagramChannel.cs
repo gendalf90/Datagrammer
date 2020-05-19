@@ -10,9 +10,6 @@ namespace Datagrammer
 {
     public sealed class DatagramChannel : Channel<Datagram>
     {
-        private const int NotInitializedState = 0;
-        private const int InitializedState = 1;
-
         private readonly Channel<Datagram> sendingChannel;
         private readonly Channel<Datagram> receivingChannel;
         private readonly Socket socket;
@@ -22,14 +19,9 @@ namespace Datagrammer
         private readonly bool disposeSocketAfterCompletion;
         private readonly SendingSocketAsyncEventArgs sendingSocketEventArgs;
         private readonly ReceivingSocketAsyncEventArgs receivingSocketEventArgs;
+        private readonly Func<Exception, Task> errorHandler;
 
-        private int state = NotInitializedState;
-
-        public DatagramChannel() : this(new DatagramChannelOptions())
-        {
-        }
-
-        public DatagramChannel(DatagramChannelOptions options)
+        private DatagramChannel(DatagramChannelOptions options)
         {
             if(options == null)
             {
@@ -42,6 +34,7 @@ namespace Datagrammer
 
             cancellationToken = options.CancellationToken;
             disposeSocketAfterCompletion = options.DisposeSocket;
+            errorHandler = options.ErrorHandler;
 
             sendingChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.SendingBufferCapacity)
             {
@@ -62,37 +55,30 @@ namespace Datagrammer
 
             Writer = sendingChannel.Writer;
             Reader = receivingChannel.Reader;
+        }
 
+        public static DatagramChannel Start(Action<DatagramChannelOptions> configuration = null)
+        {
+            var options = new DatagramChannelOptions();
+
+            configuration?.Invoke(options);
+
+            var channel = new DatagramChannel(options);
+
+            channel.Start();
+            
+            return channel;
+        }
+
+        private void Start()
+        {
+            StartClientListening();
             StartAsyncActions(
                 DisposeSocketIfNeededAsync,
                 CancelIfNeededAsync,
-                CompleteReceivingAsync);
-        }
-
-        public void Start()
-        {
-            if (!TryStartInitialization())
-            {
-                return;
-            }
-
-            try
-            {
-                StartClientListening();
-                StartAsyncActions(
-                    StartSendingAsync,
-                    StartReceivingAsync);
-            }
-            catch (Exception e)
-            {
-                FaultAll(e);
-            }
-        }
-
-        private bool TryStartInitialization()
-        {
-            var previousState = Interlocked.CompareExchange(ref state, InitializedState, NotInitializedState);
-            return previousState == NotInitializedState;
+                CompleteReceivingAsync,
+                StartSendingAsync,
+                StartReceivingAsync);
         }
 
         private void StartClientListening()
@@ -105,26 +91,19 @@ namespace Datagrammer
 
         private async Task StartReceivingAsync()
         {
-            try
+            while (await receivingChannel.Writer.WaitToWriteAsync())
             {
-                while (await receivingChannel.Writer.WaitToWriteAsync(cancellationToken))
+                var datagram = await ReceiveAsync();
+
+                if (datagram == Datagram.Empty)
                 {
-                    var datagram = await ReceiveAsync();
-
-                    if(datagram == Datagram.Empty)
-                    {
-                        continue;
-                    }
-
-                    if(!receivingChannel.Writer.TryWrite(datagram))
-                    {
-                        break;
-                    }
+                    continue;
                 }
-            }
-            catch (Exception e)
-            {
-                FaultAll(e);
+
+                if (!receivingChannel.Writer.TryWrite(datagram))
+                {
+                    break;
+                }
             }
         }
 
@@ -143,9 +122,9 @@ namespace Datagrammer
 
                 return receivingSocketEventArgs.GetDatagram();
             }
-            catch (SocketException e)
+            catch (Exception e)
             {
-                SocketErrorHandler?.Invoke(this, new SocketErrorEventArgs(e));
+                await HandleErrorAsync(e);
 
                 return Datagram.Empty;
             }
@@ -157,19 +136,12 @@ namespace Datagrammer
 
         private async Task StartSendingAsync()
         {
-            try
+            while (await sendingChannel.Reader.WaitToReadAsync())
             {
-                while(await sendingChannel.Reader.WaitToReadAsync(cancellationToken))
+                while (sendingChannel.Reader.TryRead(out var datagram))
                 {
-                    while(sendingChannel.Reader.TryRead(out var datagram))
-                    {
-                        await SendAsync(datagram);
-                    }
+                    await SendAsync(datagram);
                 }
-            }
-            catch (Exception e)
-            {
-                FaultAll(e);
             }
         }
 
@@ -188,13 +160,28 @@ namespace Datagrammer
                     sendingSocketEventArgs.ThrowIfNotSuccess();
                 }
             }
-            catch (SocketException e)
+            catch (Exception e)
             {
-                SocketErrorHandler?.Invoke(this, new SocketErrorEventArgs(e));
+                await HandleErrorAsync(e);
             }
             finally
             {
                 sendingSocketEventArgs.Reset();
+            }
+        }
+
+        private async Task HandleErrorAsync(Exception toHandleException)
+        {
+            try
+            {
+                if (errorHandler != null)
+                {
+                    await errorHandler(toHandleException);
+                }
+            }
+            catch(Exception fatalException)
+            {
+                Fault(fatalException);
             }
         }
 
@@ -221,7 +208,7 @@ namespace Datagrammer
 
         private async Task CancelIfNeededAsync()
         {
-            await using (cancellationToken.Register(() => FaultAll(new OperationCanceledException(cancellationToken))))
+            await using (cancellationToken.Register(() => Fault(new OperationCanceledException(cancellationToken))))
             {
                 await Completion;
             }
@@ -243,12 +230,9 @@ namespace Datagrammer
             }
         }
 
-        private void FaultAll(Exception e)
+        private void Fault(Exception e)
         {
             sendingChannel.Writer.TryComplete(e);
-            receivingChannel.Writer.TryComplete(e);
         }
-
-        public event EventHandler<SocketErrorEventArgs> SocketErrorHandler;
     }
 }

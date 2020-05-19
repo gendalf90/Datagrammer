@@ -18,12 +18,12 @@ namespace Tests.Integration
         public void Complete_BeforeStart_IsCompleted()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
 
-            //Act
             channel.Writer.Complete();
 
             //Assert
@@ -37,12 +37,12 @@ namespace Tests.Integration
         public void Fault_BeforeStart_IsCompletedWithError()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
 
-            //Act
             channel.Writer.Complete(new ApplicationException());
 
             //Assert
@@ -57,13 +57,14 @@ namespace Tests.Integration
         {
             //Arrange
             var source = new CancellationTokenSource();
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext()),
-                CancellationToken = source.Token
-            });
 
             //Act
+            var channel = DatagramChannel.Start(opt =>
+            {
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+                opt.CancellationToken = source.Token;
+            });
+
             source.Cancel();
 
             //Assert
@@ -77,13 +78,12 @@ namespace Tests.Integration
         public void Complete_AfterStart_IsCompleted()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
 
-            //Act
-            channel.Start();
             channel.Writer.Complete();
 
             //Assert
@@ -97,13 +97,12 @@ namespace Tests.Integration
         public void Fault_AfterStart_IsCompletedWithError()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
 
-            //Act
-            channel.Start();
             channel.Writer.Complete(new ApplicationException());
 
             //Assert
@@ -118,14 +117,14 @@ namespace Tests.Integration
         {
             //Arrange
             var source = new CancellationTokenSource();
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext()),
-                CancellationToken = source.Token
-            });
 
             //Act
-            channel.Start();
+            var channel = DatagramChannel.Start(opt =>
+            {
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+                opt.CancellationToken = source.Token;
+            });
+
             source.Cancel();
 
             //Assert
@@ -143,17 +142,16 @@ namespace Tests.Integration
             var endPointToBind = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var listeningEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
 
+            //Act
             socket.Bind(endPointToBind);
 
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            var channel = DatagramChannel.Start(opt =>
             {
-                Socket = socket,
-                ListeningPoint = listeningEndPoint,
-                DisposeSocket = false
+                opt.Socket = socket;
+                opt.ListeningPoint = listeningEndPoint;
+                opt.DisposeSocket = false;
             });
 
-            //Act
-            channel.Start();
             channel.Writer.Complete();
 
             //Assert
@@ -168,15 +166,15 @@ namespace Tests.Integration
             //Arrange
             var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
             var listeningEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                Socket = socket,
-                ListeningPoint = listeningEndPoint,
-                DisposeSocket = false
-            });
 
             //Act
-            channel.Start();
+            var channel = DatagramChannel.Start(opt =>
+            {
+                opt.Socket = socket;
+                opt.ListeningPoint = listeningEndPoint;
+                opt.DisposeSocket = false;
+            });
+
             channel.Writer.Complete();
 
             //Assert
@@ -190,15 +188,15 @@ namespace Tests.Integration
         {
             //Arrange
             var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                Socket = socket,
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext()),
-                DisposeSocket = false
-            });
 
             //Act
-            channel.Start();
+            var channel = DatagramChannel.Start(opt =>
+            {
+                opt.Socket = socket;
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+                opt.DisposeSocket = false;
+            });
+
             channel.Writer.Complete();
 
             //Assert
@@ -213,15 +211,15 @@ namespace Tests.Integration
         {
             //Arrange
             var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                Socket = socket,
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext()),
-                DisposeSocket = true
-            });
 
             //Act
-            channel.Start();
+            var channel = DatagramChannel.Start(opt =>
+            {
+                opt.Socket = socket;
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+                opt.DisposeSocket = true;
+            });
+
             channel.Writer.Complete();
 
             await channel.Reader.Completion;
@@ -235,27 +233,20 @@ namespace Tests.Integration
         }
 
         [Fact]
-        public void Start_SocketIsAlreadyDisposed_ChannelIsCompletedWithError()
+        public void Start_SocketIsAlreadyDisposed_ErrorWhileStarting()
         {
             //Arrange
             var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
 
+            //Act
             socket.Dispose();
 
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                Socket = socket,
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
-            });
-
-            //Act
-            channel.Start();
-
             //Assert
-            channel.Reader
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .Throw<ObjectDisposedException>();
+            Assert.Throws<ObjectDisposedException>(() => DatagramChannel.Start(opt =>
+            {
+                opt.Socket = socket;
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+            }));
         }
 
         [Fact]
@@ -271,18 +262,17 @@ namespace Tests.Integration
                 new Datagram( new byte[] { 10, 11, 12 }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port),
                 new Datagram( new byte[] { 13, 14, 15 }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port)
             };
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                ListeningPoint = loopbackEndPoint,
-                SendingBufferCapacity = toSendMessages.Count,
-                ReceivingBufferCapacity = toSendMessages.Count
-            });
             var receivedMessages = new List<Datagram>();
 
             //Act
-            channel.Start();
+            var channel = DatagramChannel.Start(opt =>
+            {
+                opt.ListeningPoint = loopbackEndPoint;
+                opt.SendingBufferCapacity = toSendMessages.Count;
+                opt.ReceivingBufferCapacity = toSendMessages.Count;
+            });
 
-            foreach(var message in toSendMessages)
+            foreach (var message in toSendMessages)
             {
                 await channel.Writer.WriteAsync(message);
             }
@@ -315,20 +305,20 @@ namespace Tests.Integration
                 new Datagram(new byte[100000], loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port),
                 new Datagram(new byte[] { 1, 2, 3 }, new byte[1000], 50000)
             };
-            var socketErrors = new ConcurrentBag<SocketException>();
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                ListeningPoint = loopbackEndPoint,
-                DisposeSocket = false
-            });
-
-            channel.SocketErrorHandler += (o, e) =>
-            {
-                socketErrors.Add(e.Error);
-            };
+            var socketErrors = new ConcurrentBag<Exception>();
 
             //Act
-            channel.Start();
+            var channel = DatagramChannel.Start(opt =>
+            {
+                opt.ListeningPoint = loopbackEndPoint;
+                opt.DisposeSocket = false;
+                opt.ErrorHandler = (e) =>
+                {
+                    socketErrors.Add(e);
+
+                    return Task.CompletedTask;
+                };
+            });
 
             foreach (var message in toSendMessages)
             {
@@ -356,23 +346,20 @@ namespace Tests.Integration
             //Arrange
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var cancellationSource = new CancellationTokenSource();
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                ListeningPoint = loopbackEndPoint,
-                SendingBufferCapacity = 10,
-                ReceivingBufferCapacity = 10,
-                CancellationToken = cancellationSource.Token
-            });
 
             //Act
-            channel.Start();
+            var channel = DatagramChannel.Start(opt =>
+            {
+                opt.ListeningPoint = loopbackEndPoint;
+                opt.SendingBufferCapacity = 10;
+                opt.ReceivingBufferCapacity = 10;
+                opt.CancellationToken = cancellationSource.Token;
+            });
 
             for (int i = 0; i < 15; i++)
             {
                 await channel.Writer.WriteAsync(new Datagram(BitConverter.GetBytes(i), loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port));
             }
-
-            await Task.Delay(1000);
 
             cancellationSource.Cancel();
 

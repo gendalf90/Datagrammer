@@ -46,11 +46,7 @@ namespace Datagrammer.Dataflow
 
         public static IPropagatorBlock<Datagram, Datagram> ToDataflowBlock(this Channel<Datagram> channel, Action<DatagramBlockOptions> configuration = null)
         {
-            var options = new DatagramBlockOptions();
-
-            configuration?.Invoke(options);
-
-            return new DatagramBlock(channel, options);
+            return DatagramBlock.Start(channel, configuration);
         }
     }
 }

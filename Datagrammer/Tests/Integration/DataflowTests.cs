@@ -10,24 +10,22 @@ using System.Net.Sockets;
 using System.Threading;
 using Datagrammer.Dataflow;
 using System.Threading.Tasks.Dataflow;
-using System.Threading.Channels;
 
 namespace Tests.Integration
 {
-    public class DatagrammerTests
+    public class DataflowTests
     {
         [Fact]
         public void Complete_DoNotCompleteChannel_IsCompleted()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
             var block = channel.ToDataflowBlock();
 
-            //Act
-            channel.Start();
             block.Complete();
 
             //Assert
@@ -42,14 +40,13 @@ namespace Tests.Integration
         public void Fault_DoNotCompleteChannel_IsCompletedWithError()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
             var block = channel.ToDataflowBlock();
 
-            //Act
-            channel.Start();
             block.Fault(new ApplicationException());
 
             //Assert
@@ -65,17 +62,17 @@ namespace Tests.Integration
         {
             //Arrange
             var source = new CancellationTokenSource();
-            var channel = new DatagramChannel(new DatagramChannelOptions
+
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
             var block = channel.ToDataflowBlock(opt =>
             {
                 opt.CancellationToken = source.Token;
             });
 
-            //Act
-            channel.Start();
             source.Cancel();
 
             //Assert
@@ -90,17 +87,16 @@ namespace Tests.Integration
         public void Complete_WithChannel_IsCompleted()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
             var block = channel.ToDataflowBlock(opt =>
             {
                 opt.CompleteChannel = true;
             });
 
-            //Act
-            channel.Start();
             block.Complete();
 
             //Assert
@@ -118,17 +114,16 @@ namespace Tests.Integration
         public void Fault_WithChannel_IsCompletedWithError()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
             var block = channel.ToDataflowBlock(opt =>
             {
                 opt.CompleteChannel = true;
             });
 
-            //Act
-            channel.Start();
             block.Fault(new ApplicationException());
 
             //Assert
@@ -147,9 +142,11 @@ namespace Tests.Integration
         {
             //Arrange
             var source = new CancellationTokenSource();
-            var channel = new DatagramChannel(new DatagramChannelOptions
+
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
             var block = channel.ToDataflowBlock(opt =>
             {
@@ -157,8 +154,6 @@ namespace Tests.Integration
                 opt.CompleteChannel = true;
             });
 
-            //Act
-            channel.Start();
             source.Cancel();
 
             //Assert
@@ -176,13 +171,13 @@ namespace Tests.Integration
         public void Complete_ByChannel_IsCompleted()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
             var block = channel.ToDataflowBlock();
 
-            //Act
             channel.Writer.Complete();
 
             //Assert
@@ -196,13 +191,13 @@ namespace Tests.Integration
         public void Fault_ByChannel_IsCompletedWithError()
         {
             //Arrange
-            var channel = new DatagramChannel(new DatagramChannelOptions
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext())
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
             var block = channel.ToDataflowBlock();
 
-            //Act
             channel.Writer.Complete(new ApplicationException());
 
             //Assert
@@ -217,14 +212,15 @@ namespace Tests.Integration
         {
             //Arrange
             var source = new CancellationTokenSource();
-            var channel = new DatagramChannel(new DatagramChannelOptions
+
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext()),
-                CancellationToken = source.Token
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+                opt.CancellationToken = source.Token;
             });
             var block = channel.ToDataflowBlock();
 
-            //Act
             source.Cancel();
 
             //Assert
@@ -239,10 +235,6 @@ namespace Tests.Integration
         {
             //Arrange
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            var channel = new DatagramChannel(new DatagramChannelOptions
-            {
-                ListeningPoint = loopbackEndPoint
-            });
             var toSendMessages = new List<Datagram>
             {
                 new Datagram( new byte[] { 1, 2, 3 }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port),
@@ -252,12 +244,16 @@ namespace Tests.Integration
                 new Datagram( new byte[] { 13, 14, 15 }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port)
             };
             var receivedMessages = new List<Datagram>();
+            
+            //Act
+            var channel = DatagramChannel.Start(opt =>
+            {
+                opt.ListeningPoint = loopbackEndPoint;
+            });
             var block = channel.ToDataflowBlock();
 
-            //Act
             using (block.AsObservable().Subscribe(receivedMessages.Add))
             {
-                channel.Start();
                 var sendingTasks = toSendMessages.Select(block.SendAsync);
                 await Task.WhenAll(sendingTasks);
                 await Task.Delay(1000);
@@ -277,9 +273,11 @@ namespace Tests.Integration
             //Arrange
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var cancellationSource = new CancellationTokenSource();
-            var channel = new DatagramChannel(new DatagramChannelOptions
+
+            //Act
+            var channel = DatagramChannel.Start(opt =>
             {
-                ListeningPoint = loopbackEndPoint
+                opt.ListeningPoint = loopbackEndPoint;
             });
             var block = channel.ToDataflowBlock(opt =>
             {
@@ -287,9 +285,6 @@ namespace Tests.Integration
                 opt.SendingBufferCapacity = 10;
                 opt.CancellationToken = cancellationSource.Token;
             });
-
-            //Act
-            channel.Start();
 
             for (int i = 0; i < 15; i++)
             {
