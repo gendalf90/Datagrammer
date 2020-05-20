@@ -224,9 +224,14 @@ namespace Datagrammer
 
                 receivingChannel.Writer.TryComplete();
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 receivingChannel.Writer.TryComplete(e);
+            }
+            finally
+            {
+                sendingSocketEventArgs.Close();
+                receivingSocketEventArgs.Close();
             }
         }
 

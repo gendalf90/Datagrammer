@@ -82,6 +82,7 @@ namespace Tests.Integration
             var channel = DatagramChannel.Start(opt =>
             {
                 opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+                opt.DisposeSocket = false;
             });
 
             channel.Writer.Complete();
@@ -363,7 +364,10 @@ namespace Tests.Integration
 
             cancellationSource.Cancel();
 
-            while (channel.Reader.TryRead(out var message)) ;
+            while (!channel.Reader.Completion.IsCompleted)
+            {
+                channel.Reader.TryRead(out var message);
+            }
 
             //Assert
             channel.Reader
