@@ -1,20 +1,72 @@
 ﻿using System;
+using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
 
-namespace Datagrammer.SocketEventArgs
+namespace Datagrammer
 {
     internal class AwaitableSocketAsyncEventArgs : SocketAsyncEventArgs, IValueTaskSource
     {
-        protected const int MaxUDPSize = 0x10000;
+        private const int MaxUDPSize = 0x10000;
 
         private const int HasResultState = 1;
         private const int HasNoResultState = 0;
 
         private ManualResetValueTaskSourceCore<SocketError> awaiterSource = new ManualResetValueTaskSourceCore<SocketError>();
         private int resultState = HasNoResultState;
+
+        public AwaitableSocketAsyncEventArgs()
+        {
+            RemoteEndPoint = new IPEndPoint(IPAddress.None, IPEndPoint.MinPort);
+        }
+
+        public void InitializeForReceiving()
+        {
+            SetBuffer(new byte[MaxUDPSize], 0, MaxUDPSize);
+        }
+
+        public Datagram GetDatagram()
+        {
+            var ipEndPoint = (IPEndPoint)RemoteEndPoint;
+            var address = ipEndPoint.Address.GetAddressBytes();
+            var buffer = MemoryBuffer
+                .Slice(0, BytesTransferred)
+                .ToArray();
+
+            return new Datagram(buffer, address, ipEndPoint.Port);
+        }
+
+        public void SetDatagram(Datagram datagram)
+        {
+            var ipEndPoint = (IPEndPoint)RemoteEndPoint;
+
+            try
+            {
+                ipEndPoint.Address = new IPAddress(datagram.Address.Span);
+                ipEndPoint.Port = datagram.Port;
+            }
+            catch
+            {
+                throw new SocketException((int)SocketError.AddressNotAvailable);
+            }
+
+            if (datagram.Buffer.Length > MaxUDPSize)
+            {
+                throw new SocketException((int)SocketError.MessageSize);
+            }
+
+            if (MemoryMarshal.TryGetArray(datagram.Buffer, out var arraySegment))
+            {
+                SetBuffer(arraySegment);
+            }
+            else
+            {
+                SetBuffer(datagram.Buffer.ToArray());
+            }
+        }
 
         public void ThrowIfNotSuccess()
         {
@@ -75,11 +127,11 @@ namespace Datagrammer.SocketEventArgs
 
             if (TryStartResultModifying())
             {
-                awaiterSource.SetResult(SocketError.Success);
+                awaiterSource.SetException(new SocketException((int)SocketError.OperationAborted));
             }
         }
 
-        public virtual void Reset()
+        public void Reset()
         {
             awaiterSource.Reset();
 

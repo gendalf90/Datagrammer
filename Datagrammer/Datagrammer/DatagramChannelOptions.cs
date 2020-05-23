@@ -27,6 +27,6 @@ namespace Datagrammer
 
         public bool DisposeSocket { get; set; } = true;
 
-        public Func<Exception, Task> ErrorHandler { get; set; }
+        public Func<SocketException, Task> ErrorHandler { get; set; }
     }
 }

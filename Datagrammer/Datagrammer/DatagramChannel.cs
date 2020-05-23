@@ -1,5 +1,4 @@
-﻿using Datagrammer.SocketEventArgs;
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -17,9 +16,9 @@ namespace Datagrammer
         private readonly TaskScheduler taskScheduler;
         private readonly CancellationToken cancellationToken;
         private readonly bool disposeSocketAfterCompletion;
-        private readonly SendingSocketAsyncEventArgs sendingSocketEventArgs;
-        private readonly ReceivingSocketAsyncEventArgs receivingSocketEventArgs;
-        private readonly Func<Exception, Task> errorHandler;
+        private readonly AwaitableSocketAsyncEventArgs sendingSocketEventArgs;
+        private readonly AwaitableSocketAsyncEventArgs receivingSocketEventArgs;
+        private readonly Func<SocketException, Task> errorHandler;
 
         private DatagramChannel(DatagramChannelOptions options)
         {
@@ -50,8 +49,8 @@ namespace Datagrammer
                 AllowSynchronousContinuations = true
             });
 
-            sendingSocketEventArgs = new SendingSocketAsyncEventArgs();
-            receivingSocketEventArgs = new ReceivingSocketAsyncEventArgs(socket.AddressFamily);
+            sendingSocketEventArgs = new AwaitableSocketAsyncEventArgs();
+            receivingSocketEventArgs = new AwaitableSocketAsyncEventArgs();
 
             Writer = sendingChannel.Writer;
             Reader = receivingChannel.Reader;
@@ -76,13 +75,15 @@ namespace Datagrammer
             StartAsyncActions(
                 DisposeSocketIfNeededAsync,
                 CancelIfNeededAsync,
-                CompleteReceivingAsync,
+                CloseSocketEventsAsync,
                 StartSendingAsync,
                 StartReceivingAsync);
         }
 
         private void StartClientListening()
         {
+            receivingSocketEventArgs.InitializeForReceiving();
+
             if (!socket.IsBound)
             {
                 socket.Bind(listeningPoint);
@@ -91,23 +92,24 @@ namespace Datagrammer
 
         private async Task StartReceivingAsync()
         {
-            while (await receivingChannel.Writer.WaitToWriteAsync())
+            try
             {
-                var datagram = await ReceiveAsync();
-
-                if (datagram == Datagram.Empty)
+                while (true)
                 {
-                    continue;
+                    await ReceiveAsync();
                 }
-
-                if (!receivingChannel.Writer.TryWrite(datagram))
-                {
-                    break;
-                }
+            }
+            catch(Exception e)
+            {
+                Fault(e);
+            }
+            finally
+            {
+                await CompleteReceivingAsync();
             }
         }
 
-        private async ValueTask<Datagram> ReceiveAsync()
+        private async ValueTask ReceiveAsync()
         {
             try
             {
@@ -120,13 +122,16 @@ namespace Datagrammer
                     receivingSocketEventArgs.ThrowIfNotSuccess();
                 }
 
-                return receivingSocketEventArgs.GetDatagram();
+                var datagram = receivingSocketEventArgs.GetDatagram();
+
+                while (!receivingChannel.Writer.TryWrite(datagram))
+                {
+                    await receivingChannel.Writer.WaitToWriteAsync();
+                }
             }
-            catch (Exception e)
+            catch (SocketException e)
             {
                 await HandleErrorAsync(e);
-
-                return Datagram.Empty;
             }
             finally
             {
@@ -140,7 +145,14 @@ namespace Datagrammer
             {
                 while (sendingChannel.Reader.TryRead(out var datagram))
                 {
-                    await SendAsync(datagram);
+                    try
+                    {
+                        await SendAsync(datagram);
+                    }
+                    catch (Exception e)
+                    {
+                        Fault(e);
+                    }
                 }
             }
         }
@@ -160,7 +172,7 @@ namespace Datagrammer
                     sendingSocketEventArgs.ThrowIfNotSuccess();
                 }
             }
-            catch (Exception e)
+            catch (SocketException e)
             {
                 await HandleErrorAsync(e);
             }
@@ -170,18 +182,11 @@ namespace Datagrammer
             }
         }
 
-        private async Task HandleErrorAsync(Exception toHandleException)
+        private async ValueTask HandleErrorAsync(SocketException toHandleException)
         {
-            try
+            if (errorHandler != null)
             {
-                if (errorHandler != null)
-                {
-                    await errorHandler(toHandleException);
-                }
-            }
-            catch(Exception fatalException)
-            {
-                Fault(fatalException);
+                await errorHandler(toHandleException);
             }
         }
 
@@ -206,17 +211,30 @@ namespace Datagrammer
             }
         }
 
+        private async Task CloseSocketEventsAsync()
+        {
+            try
+            {
+                await sendingChannel.Reader.Completion;
+            }
+            finally
+            {
+                sendingSocketEventArgs.Close();
+                receivingSocketEventArgs.Close();
+            }
+        }
+
         private async Task CancelIfNeededAsync()
         {
             await using (cancellationToken.Register(() => Fault(new OperationCanceledException(cancellationToken))))
             {
-                await Completion;
+                await sendingChannel.Reader.Completion;
             }
         }
 
         private Task Completion => Task.WhenAll(sendingChannel.Reader.Completion, receivingChannel.Reader.Completion);
 
-        private async Task CompleteReceivingAsync()
+        private async ValueTask CompleteReceivingAsync()
         {
             try
             {
@@ -227,11 +245,6 @@ namespace Datagrammer
             catch (Exception e)
             {
                 receivingChannel.Writer.TryComplete(e);
-            }
-            finally
-            {
-                sendingSocketEventArgs.Close();
-                receivingSocketEventArgs.Close();
             }
         }
 

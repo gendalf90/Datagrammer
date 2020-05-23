@@ -82,7 +82,6 @@ namespace Tests.Integration
             var channel = DatagramChannel.Start(opt =>
             {
                 opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-                opt.DisposeSocket = false;
             });
 
             channel.Writer.Complete();
@@ -306,7 +305,7 @@ namespace Tests.Integration
                 new Datagram(new byte[100000], loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port),
                 new Datagram(new byte[] { 1, 2, 3 }, new byte[1000], 50000)
             };
-            var socketErrors = new ConcurrentBag<Exception>();
+            var socketErrors = new ConcurrentBag<SocketException>();
 
             //Act
             var channel = DatagramChannel.Start(opt =>
@@ -336,9 +335,7 @@ namespace Tests.Integration
 
             socketErrors
                 .Should()
-                .HaveCount(3)
-                .And
-                .AllBeOfType<SocketException>();
+                .HaveCountGreaterOrEqualTo(3);
         }
 
         [Fact]
