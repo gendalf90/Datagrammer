@@ -48,6 +48,7 @@ namespace Tests.UseCases
         public async Task CaseThree()
         {
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+            var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
             var receivedBytes = new ConcurrentBag<byte[]>();
 
             var channel = DatagramChannel.Start(opt =>
@@ -59,7 +60,7 @@ namespace Tests.UseCases
 
             for (byte i = 0; i < 3; i++)
             {
-                await channel.Writer.WriteAsync(new Datagram(new byte[] { i, i, i }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port));
+                await channel.Writer.WriteAsync(loopbackDatagram.WithBuffer(new byte[] { i, i, i }));
             }
 
             for (byte i = 0; i < 3; i++)
@@ -85,6 +86,7 @@ namespace Tests.UseCases
         public async Task CaseFour()
         {
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+            var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
             var receivedBytes = new ConcurrentBag<byte[]>();
 
             var channel = DatagramChannel.Start(opt =>
@@ -99,7 +101,7 @@ namespace Tests.UseCases
 
             for (byte i = 0; i < 3; i++)
             {
-                await dataflowBlock.SendAsync(new Datagram(new byte[] { i, i, i }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port));
+                await dataflowBlock.SendAsync(loopbackDatagram.WithBuffer(new byte[] { i, i, i }));
             }
 
             for (byte i = 0; i < 3; i++)
@@ -126,6 +128,7 @@ namespace Tests.UseCases
         public async Task CaseFive()
         {
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+            var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
             var receivedBytes = new List<byte[]>();
 
             var channel = DatagramChannel.Start(opt =>
@@ -147,7 +150,7 @@ namespace Tests.UseCases
 
             for (byte i = 0; i < 3; i++)
             {
-                observer.OnNext(new Datagram(new byte[] { i, i, i }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port));
+                observer.OnNext(loopbackDatagram.WithBuffer(new byte[] { i, i, i }));
             }
 
             await Task.Delay(TimeSpan.FromSeconds(1));

@@ -235,13 +235,14 @@ namespace Tests.Integration
         {
             //Arrange
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+            var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
             var toSendMessages = new List<Datagram>
             {
-                new Datagram( new byte[] { 1, 2, 3 }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port),
-                new Datagram( new byte[] { 4, 5, 6 }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port),
-                new Datagram( new byte[] { 7, 8, 9 }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port),
-                new Datagram( new byte[] { 10, 11, 12 }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port),
-                new Datagram( new byte[] { 13, 14, 15 }, loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port)
+                loopbackDatagram.WithBuffer(new byte[] { 1, 2, 3 }),
+                loopbackDatagram.WithBuffer(new byte[] { 4, 5, 6 }),
+                loopbackDatagram.WithBuffer(new byte[] { 7, 8, 9 }),
+                loopbackDatagram.WithBuffer(new byte[] { 10, 11, 12 }),
+                loopbackDatagram.WithBuffer(new byte[] { 13, 14, 15 })
             };
             var receivedMessages = new List<Datagram>();
             
