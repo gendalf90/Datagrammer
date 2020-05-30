@@ -6,9 +6,9 @@ namespace Datagrammer
     {
         private readonly int resultHash;
 
-        private HashCodeBuilder(int initialHash)
+        private HashCodeBuilder(int resultHash)
         {
-            resultHash = initialHash;
+            this.resultHash = resultHash;
         }
 
         public HashCodeBuilder Combine(ReadOnlySpan<byte> bytes)
@@ -35,6 +35,11 @@ namespace Datagrammer
         {
             unchecked
             {
+                if (value == 0)
+                {
+                    return this;
+                }
+
                 return new HashCodeBuilder(resultHash * 23 + value);
             }
         }

@@ -73,7 +73,6 @@ namespace Datagrammer
         {
             StartClientListening();
             StartAsyncActions(
-                DisposeSocketIfNeededAsync,
                 CancelIfNeededAsync,
                 CloseSocketEventsAsync,
                 StartSendingAsync,
@@ -105,7 +104,7 @@ namespace Datagrammer
             }
             finally
             {
-                await CompleteReceivingAsync();
+                await CompleteAsync();
             }
         }
 
@@ -198,19 +197,6 @@ namespace Datagrammer
             }
         }
 
-        private async Task DisposeSocketIfNeededAsync()
-        {
-            if (!disposeSocketAfterCompletion)
-            {
-                return;
-            }
-
-            using (socket)
-            {
-                await Completion;
-            }
-        }
-
         private async Task CloseSocketEventsAsync()
         {
             try
@@ -232,20 +218,28 @@ namespace Datagrammer
             }
         }
 
-        private Task Completion => Task.WhenAll(sendingChannel.Reader.Completion, receivingChannel.Reader.Completion);
-
-        private async ValueTask CompleteReceivingAsync()
+        private async ValueTask CompleteAsync()
         {
             try
             {
                 await sendingChannel.Reader.Completion;
 
-                receivingChannel.Writer.TryComplete();
+                Complete();
             }
             catch (Exception e)
             {
-                receivingChannel.Writer.TryComplete(e);
+                Complete(e);
             }
+        }
+
+        private void Complete(Exception e = null)
+        {
+            if (disposeSocketAfterCompletion)
+            {
+                socket.Dispose();
+            }
+
+            receivingChannel.Writer.Complete(e);
         }
 
         private void Fault(Exception e)
