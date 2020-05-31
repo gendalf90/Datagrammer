@@ -15,7 +15,7 @@ namespace Datagrammer
         private readonly EndPoint listeningPoint;
         private readonly TaskScheduler taskScheduler;
         private readonly CancellationToken cancellationToken;
-        private readonly bool disposeSocketAfterCompletion;
+        private readonly bool needDisposeSocket;
         private readonly AwaitableSocketAsyncEventArgs sendingSocketEventArgs;
         private readonly AwaitableSocketAsyncEventArgs receivingSocketEventArgs;
         private readonly Func<SocketException, Task> errorHandler;
@@ -32,7 +32,7 @@ namespace Datagrammer
             taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
 
             cancellationToken = options.CancellationToken;
-            disposeSocketAfterCompletion = options.DisposeSocket;
+            needDisposeSocket = options.DisposeSocket;
             errorHandler = options.ErrorHandler;
 
             sendingChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.SendingBufferCapacity)
@@ -234,7 +234,7 @@ namespace Datagrammer
 
         private void Complete(Exception e = null)
         {
-            if (disposeSocketAfterCompletion)
+            if (needDisposeSocket)
             {
                 socket.Dispose();
             }

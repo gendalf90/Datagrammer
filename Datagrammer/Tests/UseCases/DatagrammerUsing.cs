@@ -1,6 +1,5 @@
 ﻿using Datagrammer;
 using FluentAssertions;
-using System.Collections.Concurrent;
 using System.Net;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
@@ -49,7 +48,7 @@ namespace Tests.UseCases
         {
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
-            var receivedBytes = new ConcurrentBag<byte[]>();
+            var receivedBytes = new List<byte[]>();
 
             var channel = DatagramChannel.Start(opt =>
             {
@@ -87,7 +86,7 @@ namespace Tests.UseCases
         {
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
-            var receivedBytes = new ConcurrentBag<byte[]>();
+            var receivedBytes = new List<byte[]>();
 
             var channel = DatagramChannel.Start(opt =>
             {

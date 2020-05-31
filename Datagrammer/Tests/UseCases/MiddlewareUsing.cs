@@ -29,22 +29,26 @@ namespace Tests.UseCases
         [Fact(DisplayName = "simple transformation middleware")]
         public async Task CaseOne()
         {
-            var buffer = new BufferBlock<string>();
-
+            var inputBuffer = new BufferBlock<int>();
+            var outputBuffer = new BufferBlock<string>();
             var middleware = new TestMiddlewareBlock(new MiddlewareOptions());
 
-            middleware.LinkTo(buffer, new DataflowLinkOptions
+            inputBuffer.LinkTo(middleware, new DataflowLinkOptions
+            {
+                PropagateCompletion = true
+            });
+            middleware.LinkTo(outputBuffer, new DataflowLinkOptions
             {
                 PropagateCompletion = true
             });
 
-            await middleware.SendAsync(1);
+            await inputBuffer.SendAsync(1);
 
-            var result = await buffer.ReceiveAsync();
+            var result = await outputBuffer.ReceiveAsync();
 
-            middleware.Complete();
+            inputBuffer.Complete();
 
-            await buffer.Completion;
+            await outputBuffer.Completion;
 
             result.Should().Be("1");
         }
