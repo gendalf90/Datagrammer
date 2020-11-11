@@ -45,7 +45,7 @@ namespace Datagrammer
 
             try
             {
-                ipEndPoint.Address = new IPAddress(datagram.Address.Span);
+                ipEndPoint.Address = datagram.GetAddress();
                 ipEndPoint.Port = datagram.Port;
             }
             catch
