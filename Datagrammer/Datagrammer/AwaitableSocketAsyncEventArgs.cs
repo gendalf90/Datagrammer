@@ -58,14 +58,7 @@ namespace Datagrammer
                 throw new SocketException((int)SocketError.MessageSize);
             }
 
-            if (MemoryMarshal.TryGetArray(datagram.Buffer, out var arraySegment))
-            {
-                SetBuffer(arraySegment);
-            }
-            else
-            {
-                SetBuffer(datagram.Buffer.ToArray());
-            }
+            SetBuffer(MemoryMarshal.AsMemory(datagram.Buffer));
         }
 
         public void ThrowIfNotSuccess()

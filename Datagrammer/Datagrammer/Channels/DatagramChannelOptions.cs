@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 
-namespace Datagrammer
+namespace Datagrammer.Channels
 {
     public sealed class DatagramChannelOptions
     {

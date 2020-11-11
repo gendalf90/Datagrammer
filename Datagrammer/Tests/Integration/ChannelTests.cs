@@ -9,6 +9,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Collections.Concurrent;
 using System.Linq;
+using Datagrammer.Channels;
 
 namespace Tests.Integration
 {

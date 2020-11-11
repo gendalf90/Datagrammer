@@ -7,6 +7,7 @@ using Xunit;
 using System;
 using Datagrammer.Dataflow;
 using System.Collections.Generic;
+using Datagrammer.Channels;
 
 namespace Tests.UseCases
 {

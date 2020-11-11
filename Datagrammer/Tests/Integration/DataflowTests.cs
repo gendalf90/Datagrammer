@@ -10,6 +10,7 @@ using System.Net.Sockets;
 using System.Threading;
 using Datagrammer.Dataflow;
 using System.Threading.Tasks.Dataflow;
+using Datagrammer.Channels;
 
 namespace Tests.Integration
 {
