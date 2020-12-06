@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Net;
 
 namespace Datagrammer
@@ -23,25 +22,22 @@ namespace Datagrammer
 
         public static Datagram WithAddress(this Datagram datagram, params byte[] ipBytes)
         {
-            return new Datagram(datagram.Buffer, ipBytes, datagram.Port);
+            return datagram.WithAddress(new IPAddress(ipBytes));
         }
 
         public static Datagram WithAddress(this Datagram datagram, string ipString)
         {
-            return new Datagram(datagram.Buffer, IPAddress.Parse(ipString).GetAddressBytes(), datagram.Port);
+            return datagram.WithAddress(IPAddress.Parse(ipString));
         }
 
         public static Datagram WithPort(this Datagram datagram, int port)
         {
-            return new Datagram(datagram.Buffer, datagram.Address, port);
-        }
-
-        public static IEnumerable<Datagram> WithHost(this Datagram datagram, string hostName)
-        {
-            foreach(var address in Dns.GetHostAddresses(hostName))
+            if(port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort)
             {
-                yield return new Datagram(datagram.Buffer, address.GetAddressBytes(), datagram.Port);
+                throw new ArgumentOutOfRangeException(nameof(port));
             }
+
+            return new Datagram(datagram.Buffer, datagram.Address, port);
         }
 
         public static IPEndPoint GetEndPoint(this Datagram datagram)
