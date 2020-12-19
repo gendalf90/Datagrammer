@@ -1,7 +1,5 @@
-﻿using System;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 
@@ -9,24 +7,24 @@ namespace Datagrammer.Channels
 {
     public sealed class DatagramChannelOptions
     {
-        public Socket Socket { get; set; } = new Socket(SocketType.Dgram, ProtocolType.Udp);
+        public Socket Socket { get; set; }
 
-        public EndPoint ListeningPoint { get; set; } = new IPEndPoint(IPAddress.Any, 50000);
+        public EndPoint ListeningPoint { get; set; }
 
-        public TaskScheduler TaskScheduler { get; set; } = TaskScheduler.Default;
+        public TaskScheduler TaskScheduler { get; set; }
 
-        public CancellationToken CancellationToken { get; set; } = CancellationToken.None;
+        public int? SendingBufferCapacity { get; set; }
 
-        public int SendingBufferCapacity { get; set; } = 1;
+        public BoundedChannelFullMode? SendingFullMode { get; set; }
 
-        public BoundedChannelFullMode SendingFullMode { get; set; } = BoundedChannelFullMode.Wait;
+        public int? ReceivingBufferCapacity { get; set; }
 
-        public int ReceivingBufferCapacity { get; set; } = 1;
+        public BoundedChannelFullMode? ReceivingFullMode { get; set; }
 
-        public BoundedChannelFullMode ReceivingFullMode { get; set; } = BoundedChannelFullMode.Wait;
+        public bool? AllowSynchronousContinuations { get; set; }
 
-        public bool DisposeSocket { get; set; } = true;
+        public bool? SingleReader { get; set; }
 
-        public Func<SocketException, Task> ErrorHandler { get; set; }
+        public bool? SingleWriter { get; set; }
     }
 }

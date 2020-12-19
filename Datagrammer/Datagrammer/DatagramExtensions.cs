@@ -49,5 +49,10 @@ namespace Datagrammer
         {
             return new IPAddress(datagram.Address.Span);
         }
+
+        public static Try<Datagram> AsTry(this Datagram datagram)
+        {
+            return new Try<Datagram>(datagram);
+        }
     }
 }

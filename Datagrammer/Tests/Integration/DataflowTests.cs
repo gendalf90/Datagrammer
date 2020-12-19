@@ -10,92 +10,19 @@ using System.Net.Sockets;
 using System.Threading;
 using Datagrammer.Dataflow;
 using System.Threading.Tasks.Dataflow;
-using Datagrammer.Channels;
 
 namespace Tests.Integration
 {
     public class DataflowTests
     {
         [Fact]
-        public void Complete_DoNotCompleteChannel_IsCompleted()
+        public void Complete_IsCompleted()
         {
             //Arrange
             //Act
-            var channel = DatagramChannel.Start(opt =>
+            var block = DatagramBlock.Start(opt =>
             {
                 opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            });
-            var block = channel.ToDataflowBlock();
-
-            block.Complete();
-
-            //Assert
-            block
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .NotThrow();
-            channel.Reader.Completion.IsCompleted.Should().BeFalse();
-        }
-
-        [Fact]
-        public void Fault_DoNotCompleteChannel_IsCompletedWithError()
-        {
-            //Arrange
-            //Act
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            });
-            var block = channel.ToDataflowBlock();
-
-            block.Fault(new ApplicationException());
-
-            //Assert
-            block
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .Throw<ApplicationException>();
-            channel.Reader.Completion.IsCompleted.Should().BeFalse();
-        }
-
-        [Fact]
-        public void Cancel_DoNotCompleteChannel_IsCanceled()
-        {
-            //Arrange
-            var source = new CancellationTokenSource();
-
-            //Act
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            });
-            var block = channel.ToDataflowBlock(opt =>
-            {
-                opt.CancellationToken = source.Token;
-            });
-
-            source.Cancel();
-
-            //Assert
-            block
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .Throw<OperationCanceledException>();
-            channel.Reader.Completion.IsCompleted.Should().BeFalse();
-        }
-
-        [Fact]
-        public void Complete_WithChannel_IsCompleted()
-        {
-            //Arrange
-            //Act
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            });
-            var block = channel.ToDataflowBlock(opt =>
-            {
-                opt.CompleteChannel = true;
             });
 
             block.Complete();
@@ -105,24 +32,38 @@ namespace Tests.Integration
                 .Awaiting(reader => reader.Completion)
                 .Should()
                 .NotThrow();
-            channel.Reader
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .NotThrow();
         }
 
         [Fact]
-        public void Fault_WithChannel_IsCompletedWithError()
+        public void Cancel_IsCanceled()
+        {
+            //Arrange
+            var source = new CancellationTokenSource();
+
+            //Act
+            var block = DatagramBlock.Start(opt =>
+            {
+                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
+                opt.CancellationToken = source.Token;
+            });
+
+            source.Cancel();
+
+            //Assert
+            block
+                .Awaiting(reader => reader.Completion)
+                .Should()
+                .Throw<OperationCanceledException>();
+        }
+
+        [Fact]
+        public void Fault_IsCompletedWithError()
         {
             //Arrange
             //Act
-            var channel = DatagramChannel.Start(opt =>
+            var block = DatagramBlock.Start(opt =>
             {
                 opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            });
-            var block = channel.ToDataflowBlock(opt =>
-            {
-                opt.CompleteChannel = true;
             });
 
             block.Fault(new ApplicationException());
@@ -132,103 +73,30 @@ namespace Tests.Integration
                 .Awaiting(reader => reader.Completion)
                 .Should()
                 .Throw<ApplicationException>();
-            channel.Reader
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .Throw<ApplicationException>();
         }
 
         [Fact]
-        public void Cancel_WithChannel_IsCanceled()
+        public async Task DisposeSocket_IsCompletedWithError()
         {
             //Arrange
-            var source = new CancellationTokenSource();
+            var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
 
             //Act
-            var channel = DatagramChannel.Start(opt =>
+            var block = DatagramBlock.Start(opt =>
             {
+                opt.Socket = socket;
                 opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             });
-            var block = channel.ToDataflowBlock(opt =>
-            {
-                opt.CancellationToken = source.Token;
-                opt.CompleteChannel = true;
-            });
 
-            source.Cancel();
+            await Task.Delay(1000);
+
+            socket.Dispose();
 
             //Assert
             block
                 .Awaiting(reader => reader.Completion)
                 .Should()
-                .Throw<OperationCanceledException>();
-            channel.Reader
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .Throw<OperationCanceledException>();
-        }
-
-        [Fact]
-        public void Complete_ByChannel_IsCompleted()
-        {
-            //Arrange
-            //Act
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            });
-            var block = channel.ToDataflowBlock();
-
-            channel.Writer.Complete();
-
-            //Assert
-            block
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .NotThrow();
-        }
-
-        [Fact]
-        public void Fault_ByChannel_IsCompletedWithError()
-        {
-            //Arrange
-            //Act
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            });
-            var block = channel.ToDataflowBlock();
-
-            channel.Writer.Complete(new ApplicationException());
-
-            //Assert
-            block
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .Throw<ApplicationException>();
-        }
-
-        [Fact]
-        public void Cancel_ByChannel_IsCanceled()
-        {
-            //Arrange
-            var source = new CancellationTokenSource();
-
-            //Act
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-                opt.CancellationToken = source.Token;
-            });
-            var block = channel.ToDataflowBlock();
-
-            source.Cancel();
-
-            //Assert
-            block
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .Throw<OperationCanceledException>();
+                .Throw<SocketException>();
         }
 
         [Fact]
@@ -245,25 +113,22 @@ namespace Tests.Integration
                 loopbackDatagram.WithBuffer(new byte[] { 10, 11, 12 }),
                 loopbackDatagram.WithBuffer(new byte[] { 13, 14, 15 })
             };
-            var receivedMessages = new List<Datagram>();
-            
+            var receivedMessages = new List<Try<Datagram>>();
+
             //Act
-            var channel = DatagramChannel.Start(opt =>
+            var block = DatagramBlock.Start(opt =>
             {
                 opt.ListeningPoint = loopbackEndPoint;
-            });
-            var block = channel.ToDataflowBlock(opt =>
-            {
                 opt.ReceivingBufferCapacity = toSendMessages.Count;
             });
-            var sendingTasks = toSendMessages.Select(block.SendAsync);
+            var sendingTasks = toSendMessages.Select(message => block.SendAsync(new Try<Datagram>(message)));
 
             await Task.WhenAll(sendingTasks);
             await Task.Delay(1000);
 
             block.Complete();
 
-            while(await block.OutputAvailableAsync())
+            while (await block.OutputAvailableAsync())
             {
                 receivedMessages.Add(block.Receive());
             }
@@ -274,7 +139,7 @@ namespace Tests.Integration
                 .Should()
                 .NotThrow();
             receivedMessages
-                .Select(message => message.Buffer.ToArray())
+                .Select(message => message.Value.Buffer.ToArray())
                 .Should()
                 .BeEquivalentTo(toSendMessages.Select(message => message.Buffer.ToArray()));
         }
@@ -295,15 +160,12 @@ namespace Tests.Integration
             };
 
             //Act
-            var channel = DatagramChannel.Start(opt =>
+            var block = DatagramBlock.Start(opt =>
             {
                 opt.ListeningPoint = loopbackEndPoint;
-            });
-            var block = channel.ToDataflowBlock(opt =>
-            {
                 opt.ReceivingBufferCapacity = toSendMessages.Count;
             });
-            var sendingTasks = toSendMessages.Select(block.SendAsync);
+            var sendingTasks = toSendMessages.Select(message => block.SendAsync(new Try<Datagram>(message)));
 
             await Task.WhenAll(sendingTasks);
             await Task.Delay(1000);
@@ -330,12 +192,9 @@ namespace Tests.Integration
             var cancellationSource = new CancellationTokenSource();
 
             //Act
-            var channel = DatagramChannel.Start(opt =>
+            var block = DatagramBlock.Start(opt =>
             {
                 opt.ListeningPoint = loopbackEndPoint;
-            });
-            var block = channel.ToDataflowBlock(opt =>
-            {
                 opt.ReceivingBufferCapacity = 10;
                 opt.SendingBufferCapacity = 10;
                 opt.CancellationToken = cancellationSource.Token;
@@ -343,7 +202,7 @@ namespace Tests.Integration
 
             for (byte i = 0; i < 15; i++)
             {
-                await block.SendAsync(loopbackDatagram.WithBuffer(new byte[] { i, i, i }));
+                await block.SendAsync(new Try<Datagram>(loopbackDatagram.WithBuffer(new byte[] { i, i, i })));
             }
 
             cancellationSource.Cancel();
@@ -353,61 +212,6 @@ namespace Tests.Integration
                 .Awaiting(b => b.Completion)
                 .Should()
                 .Throw<OperationCanceledException>();
-        }
-
-        [Fact]
-        public async Task ReceiveFromChannel_WithMultipleBlocks_MessagesAreNotLost()
-        {
-            //Arrange
-            var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.ListeningPoint = loopbackEndPoint;
-            });
-            var block1 = channel.ToDataflowBlock(opt =>
-            {
-                opt.ReceivingBufferCapacity = 50;
-            });
-            var block2 = channel.ToDataflowBlock(opt =>
-            {
-                opt.ReceivingBufferCapacity = 50;
-            });
-            var block3 = channel.ToDataflowBlock(opt =>
-            {
-                opt.ReceivingBufferCapacity = 50;
-            });
-            var resultBlock = new BufferBlock<Datagram>(new DataflowBlockOptions
-            {
-                BoundedCapacity = 100
-            });
-
-            //Act
-            block1.LinkTo(resultBlock);
-            block2.LinkTo(resultBlock);
-            block3.LinkTo(resultBlock);
-
-            for (byte i = 0; i < 100; i++)
-            {
-                await channel.Writer.WriteAsync(loopbackDatagram.WithBuffer(new byte[] { i, i, i }));
-            }
-
-            block1.Complete();
-
-            await Task.Delay(500);
-
-            block2.Complete();
-
-            await Task.Delay(500);
-
-            block3.Complete();
-
-            await Task.WhenAll(block1.Completion, block2.Completion, block3.Completion);
-
-            resultBlock.TryReceiveAll(out var receivedMessages);
-
-            //Assert
-            receivedMessages.Count.Should().Be(100);
         }
     }
 }

@@ -1,18 +1,22 @@
-﻿using System.Threading;
+﻿using System.Net;
+using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Datagrammer.Dataflow
 {
     public sealed class DatagramBlockOptions
     {
-        public TaskScheduler TaskScheduler { get; set; } = TaskScheduler.Default;
+        public Socket Socket { get; set; }
 
-        public CancellationToken CancellationToken { get; set; } = CancellationToken.None;
+        public EndPoint ListeningPoint { get; set; }
 
-        public int SendingBufferCapacity { get; set; } = 1;
+        public TaskScheduler TaskScheduler { get; set; }
 
-        public int ReceivingBufferCapacity { get; set; } = 1;
+        public CancellationToken? CancellationToken { get; set; }
 
-        public bool CompleteChannel { get; set; } = false;
+        public int? SendingBufferCapacity { get; set; }
+
+        public int? ReceivingBufferCapacity { get; set; }
     }
 }

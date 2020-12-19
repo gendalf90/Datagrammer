@@ -1,24 +1,23 @@
 ﻿using System;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace Datagrammer.Channels
 {
-    public sealed class DatagramChannel : Channel<Datagram>
+    public sealed class DatagramChannel : Channel<Try<Datagram>>
     {
-        private readonly Channel<Datagram> sendingChannel;
-        private readonly Channel<Datagram> receivingChannel;
+        private readonly TaskFactory taskFactory;
+        private readonly Channel<Try<Datagram>> inputChannel;
+        private readonly Channel<Try<Datagram>> outputChannel;
         private readonly Socket socket;
         private readonly EndPoint listeningPoint;
-        private readonly TaskScheduler taskScheduler;
-        private readonly CancellationToken cancellationToken;
-        private readonly bool needDisposeSocket;
         private readonly AwaitableSocketAsyncEventArgs sendingSocketEventArgs;
         private readonly AwaitableSocketAsyncEventArgs receivingSocketEventArgs;
-        private readonly Func<SocketException, Task> errorHandler;
+        private readonly bool needSocketBinding;
+        private readonly TaskCompletionSource inputCompletionSource;
+        private readonly TaskCompletionSource outputCompletionSource;
 
         private DatagramChannel(DatagramChannelOptions options)
         {
@@ -27,33 +26,35 @@ namespace Datagrammer.Channels
                 throw new ArgumentNullException(nameof(options));
             }
 
-            socket = options.Socket ?? throw new ArgumentNullException(nameof(options.Socket));
-            listeningPoint = options.ListeningPoint ?? throw new ArgumentNullException(nameof(options.ListeningPoint));
-            taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
-
-            cancellationToken = options.CancellationToken;
-            needDisposeSocket = options.DisposeSocket;
-            errorHandler = options.ErrorHandler;
-
-            sendingChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.SendingBufferCapacity)
+            taskFactory = new TaskFactory(options.TaskScheduler ?? TaskScheduler.Default);
+            needSocketBinding = options.Socket == null || options.ListeningPoint != null;
+            socket = options.Socket ?? new Socket(SocketType.Dgram, ProtocolType.Udp);
+            listeningPoint = options.ListeningPoint ?? new IPEndPoint(IPAddress.Loopback, IPEndPoint.MinPort);
+            
+            inputChannel = Channel.CreateBounded<Try<Datagram>>(new BoundedChannelOptions(options.SendingBufferCapacity ?? 1)
             {
+                SingleWriter = options.SingleWriter ?? false,
                 SingleReader = true,
-                FullMode = options.SendingFullMode,
-                AllowSynchronousContinuations = true
+                FullMode = options.SendingFullMode ?? BoundedChannelFullMode.Wait,
+                AllowSynchronousContinuations = options.AllowSynchronousContinuations ?? true
             });
 
-            receivingChannel = Channel.CreateBounded<Datagram>(new BoundedChannelOptions(options.ReceivingBufferCapacity)
+            outputChannel = Channel.CreateBounded<Try<Datagram>>(new BoundedChannelOptions(options.ReceivingBufferCapacity ?? 1)
             {
-                SingleWriter = true,
-                FullMode = options.ReceivingFullMode,
-                AllowSynchronousContinuations = true
+                SingleWriter = false,
+                SingleReader = options.SingleReader ?? false,
+                FullMode = options.ReceivingFullMode ?? BoundedChannelFullMode.Wait,
+                AllowSynchronousContinuations = options.AllowSynchronousContinuations ?? true
             });
 
             sendingSocketEventArgs = new AwaitableSocketAsyncEventArgs();
             receivingSocketEventArgs = new AwaitableSocketAsyncEventArgs();
 
-            Writer = sendingChannel.Writer;
-            Reader = receivingChannel.Reader;
+            Writer = inputChannel.Writer;
+            Reader = outputChannel.Reader;
+
+            inputCompletionSource = new TaskCompletionSource();
+            outputCompletionSource = new TaskCompletionSource();
         }
 
         public static DatagramChannel Start(Action<DatagramChannelOptions> configuration = null)
@@ -72,18 +73,17 @@ namespace Datagrammer.Channels
         private void Start()
         {
             StartClientListening();
-            StartAsyncActions(
-                CancelIfNeededAsync,
-                CloseSocketEventsAsync,
-                StartSendingAsync,
-                StartReceivingAsync);
+
+            taskFactory.StartNew(StartSendingAsync);
+            taskFactory.StartNew(StartReceivingAsync);
+            taskFactory.StartNew(StartCompletionAsync);
         }
 
         private void StartClientListening()
         {
             receivingSocketEventArgs.InitializeForReceiving();
 
-            if (!socket.IsBound)
+            if (needSocketBinding)
             {
                 socket.Bind(listeningPoint);
             }
@@ -100,11 +100,9 @@ namespace Datagrammer.Channels
             }
             catch(Exception e)
             {
+                outputCompletionSource.SetResult();
+
                 Fault(e);
-            }
-            finally
-            {
-                await CompleteAsync();
             }
         }
 
@@ -123,14 +121,11 @@ namespace Datagrammer.Channels
 
                 var datagram = receivingSocketEventArgs.GetDatagram();
 
-                while (!receivingChannel.Writer.TryWrite(datagram))
-                {
-                    await receivingChannel.Writer.WaitToWriteAsync();
-                }
+                await WriteToOutputAsync(new Try<Datagram>(datagram));
             }
-            catch (SocketException e)
+            catch (SocketException e) when (e.SocketErrorCode != SocketError.OperationAborted)
             {
-                await HandleErrorAsync(e);
+                await WriteToOutputAsync(new Try<Datagram>(e));
             }
             finally
             {
@@ -140,27 +135,55 @@ namespace Datagrammer.Channels
 
         private async Task StartSendingAsync()
         {
-            while (await sendingChannel.Reader.WaitToReadAsync())
+            try
             {
-                while (sendingChannel.Reader.TryRead(out var datagram))
+                while (await inputChannel.Reader.WaitToReadAsync())
                 {
-                    try
+                    while (inputChannel.Reader.TryRead(out var datagram))
                     {
-                        await SendAsync(datagram);
-                    }
-                    catch (Exception e)
-                    {
-                        Fault(e);
+                        await ReadInputAsync(datagram);
                     }
                 }
             }
+            finally
+            {
+                inputCompletionSource.SetResult();
+            }
         }
 
-        private async ValueTask SendAsync(Datagram datagram)
+        private async ValueTask ReadInputAsync(Try<Datagram> datagram)
         {
             try
             {
-                sendingSocketEventArgs.SetDatagram(datagram);
+                if (datagram.IsException())
+                {
+                    await WriteToOutputAsync(datagram);
+                }
+                else
+                {
+                    await SendAsync(datagram);
+                }
+            }
+            catch (SocketException e) when (e.SocketErrorCode != SocketError.OperationAborted)
+            {
+                await WriteToOutputAsync(new Try<Datagram>(e));
+            }
+            catch (Exception e)
+            {
+                Fault(e);
+            }
+        }
+
+        private ValueTask WriteToOutputAsync(Try<Datagram> datagram)
+        {
+            return outputChannel.Writer.WriteAsync(datagram);
+        }
+
+        private async ValueTask SendAsync(Try<Datagram> datagram)
+        {
+            try
+            {
+                sendingSocketEventArgs.SetDatagram(datagram.Value);
 
                 if (socket.SendToAsync(sendingSocketEventArgs))
                 {
@@ -171,80 +194,38 @@ namespace Datagrammer.Channels
                     sendingSocketEventArgs.ThrowIfNotSuccess();
                 }
             }
-            catch (SocketException e)
-            {
-                await HandleErrorAsync(e);
-            }
             finally
             {
                 sendingSocketEventArgs.Reset();
             }
         }
 
-        private async ValueTask HandleErrorAsync(SocketException toHandleException)
+        private async Task StartCompletionAsync()
         {
-            if (errorHandler != null)
+            using (sendingSocketEventArgs)
+            using (receivingSocketEventArgs)
+            using (socket)
             {
-                await errorHandler(toHandleException);
+                await inputCompletionSource.Task;
             }
-        }
 
-        private void StartAsyncActions(params Func<Task>[] asyncActions)
-        {
-            foreach (var action in asyncActions)
-            {
-                Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.None, taskScheduler);
-            }
-        }
+            await outputCompletionSource.Task;
 
-        private async Task CloseSocketEventsAsync()
-        {
             try
             {
-                await sendingChannel.Reader.Completion;
-            }
-            finally
-            {
-                sendingSocketEventArgs.Close();
-                receivingSocketEventArgs.Close();
-            }
-        }
+                await inputChannel.Reader.Completion;
 
-        private async Task CancelIfNeededAsync()
-        {
-            await using (cancellationToken.Register(() => Fault(new OperationCanceledException(cancellationToken))))
-            {
-                await sendingChannel.Reader.Completion;
-            }
-        }
-
-        private async ValueTask CompleteAsync()
-        {
-            try
-            {
-                await sendingChannel.Reader.Completion;
-
-                Complete();
+                outputChannel.Writer.TryComplete();
             }
             catch (Exception e)
             {
-                Complete(e);
+                outputChannel.Writer.TryComplete(e);
             }
-        }
-
-        private void Complete(Exception e = null)
-        {
-            if (needDisposeSocket)
-            {
-                socket.Dispose();
-            }
-
-            receivingChannel.Writer.Complete(e);
         }
 
         private void Fault(Exception e)
         {
-            sendingChannel.Writer.TryComplete(e);
+            inputChannel.Writer.TryComplete(e);
         }
     }
 }

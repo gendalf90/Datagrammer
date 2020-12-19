@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Datagrammer.Channels;
+using System;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Channels;
@@ -7,54 +8,62 @@ using System.Threading.Tasks.Dataflow;
 
 namespace Datagrammer.Dataflow
 {
-    public sealed class DatagramBlock : IPropagatorBlock<Datagram, Datagram>
+    public sealed class DatagramBlock : IPropagatorBlock<Try<Datagram>, Try<Datagram>>
     {
-        private readonly BufferBlock<Datagram> sendingBuffer;
-        private readonly BufferBlock<Datagram> receivingBuffer;
-        private readonly Channel<Datagram> channel;
-        private readonly TaskScheduler taskScheduler;
-        private readonly CancellationTokenSource completionCancellationSource;
-        private readonly CancellationTokenSource faultCancellationSource;
-        private readonly bool needChannelCompletion;
+        private readonly TaskFactory taskFactory;
+        private readonly BufferBlock<Try<Datagram>> inputBuffer;
+        private readonly BufferBlock<Try<Datagram>> outputBuffer;
+        private readonly Action<DatagramChannelOptions> channelConfiguration;
+        private readonly TaskCompletionSource inputCompletionSource;
+        private readonly TaskCompletionSource outputCompletionSource;
 
-        private DatagramBlock(Channel<Datagram> channel, DatagramBlockOptions options)
+        private Channel<Try<Datagram>> channel;
+
+        private DatagramBlock(DatagramBlockOptions options)
         {
             if(options == null)
             {
                 throw new ArgumentNullException(nameof(options));
             }
 
-            this.channel = channel ?? throw new ArgumentNullException(nameof(channel));
+            taskFactory = new TaskFactory(options.TaskScheduler ?? TaskScheduler.Default);
 
-            taskScheduler = options.TaskScheduler ?? throw new ArgumentNullException(nameof(options.TaskScheduler));
-
-            completionCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
-            faultCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
-
-            needChannelCompletion = options.CompleteChannel;
-
-            sendingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
+            channelConfiguration = opt =>
             {
-                BoundedCapacity = options.SendingBufferCapacity,
-                TaskScheduler = options.TaskScheduler,
-                CancellationToken = options.CancellationToken
+                opt.ListeningPoint = options.ListeningPoint;
+                opt.Socket = options.Socket;
+                opt.TaskScheduler = options.TaskScheduler;
+                opt.SingleReader = true;
+                opt.SingleWriter = true;
+            };
+
+            inputBuffer = new BufferBlock<Try<Datagram>>(new DataflowBlockOptions
+            {
+                BoundedCapacity = options.SendingBufferCapacity ?? 1,
+                TaskScheduler = options.TaskScheduler ?? TaskScheduler.Default,
+                CancellationToken = options.CancellationToken ?? CancellationToken.None,
+                EnsureOrdered = false
             });
 
-            receivingBuffer = new BufferBlock<Datagram>(new DataflowBlockOptions
+            outputBuffer = new BufferBlock<Try<Datagram>>(new DataflowBlockOptions
             {
-                BoundedCapacity = options.ReceivingBufferCapacity,
-                TaskScheduler = options.TaskScheduler,
-                CancellationToken = options.CancellationToken
+                BoundedCapacity = options.ReceivingBufferCapacity ?? 1,
+                TaskScheduler = options.TaskScheduler ?? TaskScheduler.Default,
+                CancellationToken = options.CancellationToken ?? CancellationToken.None,
+                EnsureOrdered = false
             });
+
+            inputCompletionSource = new TaskCompletionSource();
+            outputCompletionSource = new TaskCompletionSource();
         }
 
-        public static DatagramBlock Start(Channel<Datagram> channel, Action<DatagramBlockOptions> configuration = null)
+        public static DatagramBlock Start(Action<DatagramBlockOptions> configuration = null)
         {
             var options = new DatagramBlockOptions();
 
             configuration?.Invoke(options);
 
-            var datagramBlock = new DatagramBlock(channel, options);
+            var datagramBlock = new DatagramBlock(options);
 
             datagramBlock.Start();
 
@@ -63,159 +72,156 @@ namespace Datagrammer.Dataflow
 
         private void Start()
         {
-            StartAsyncActions(
-                CompleteByChannelAsync,
-                CompleteChannelIfNeededAsync,
-                StartMessageReceivingAsync,
-                StartMessageSendingAsync);
+            channel = DatagramChannel.Start(channelConfiguration);
+
+            taskFactory.StartNew(StartMessageInputAsync);
+            taskFactory.StartNew(StartMessageOutputAsync);
+            taskFactory.StartNew(CompleteByChannelAsync);
+            taskFactory.StartNew(CompleteInputAsync);
         }
 
-        private async Task StartMessageSendingAsync()
+        private async Task StartMessageInputAsync()
         {
             try
             {
-                while (await sendingBuffer.OutputAvailableAsync())
+                while (await inputBuffer.OutputAvailableAsync())
                 {
-                    while (sendingBuffer.TryReceive(out var message))
+                    while (inputBuffer.TryReceive(out var message))
                     {
-                        while (!channel.Writer.TryWrite(message))
+                        try
                         {
-                            if (!await channel.Writer.WaitToWriteAsync(faultCancellationSource.Token))
+                            if (message.IsException())
                             {
-                                return;
+                                await WriteMessageAsync(message);
                             }
+                            else
+                            {
+                                await SendMessageAsync(message);
+                            }
+                        }
+                        catch
+                        {
+                            continue;
                         }
                     }
                 }
             }
             finally
             {
-                DropSendingMessages();
+                inputCompletionSource.SetResult();
             }
         }
 
-        private async Task StartMessageReceivingAsync()
+        private async Task SendMessageAsync(Try<Datagram> message)
+        {
+            if (!channel.Writer.TryWrite(message))
+            {
+                await channel.Writer.WriteAsync(message);
+            }
+        }
+
+        private async Task WriteMessageAsync(Try<Datagram> message)
+        {
+            if (!outputBuffer.Post(message))
+            {
+                await outputBuffer.SendAsync(message);
+            }
+        }
+
+        private async Task StartMessageOutputAsync()
         {
             try
             {
-                while (await channel.Reader.WaitToReadAsync(completionCancellationSource.Token))
+                while (await channel.Reader.WaitToReadAsync())
                 {
-                    while (!completionCancellationSource.IsCancellationRequested && channel.Reader.TryRead(out var message))
+                    while (channel.Reader.TryRead(out var message))
                     {
-                        if (!receivingBuffer.Post(message))
+                        try
                         {
-                            if (!await receivingBuffer.SendAsync(message, faultCancellationSource.Token))
-                            {
-                                return;
-                            }
+                            await WriteMessageAsync(message);
+                        }
+                        catch
+                        {
+                            continue;
                         }
                     }
                 }
             }
             finally
             {
-                await CompleteReceivingAsync();
+                outputCompletionSource.SetResult();
             }
         }
 
         private async Task CompleteByChannelAsync()
         {
+            await outputCompletionSource.Task;
+
             try
             {
                 await channel.Reader.Completion;
 
-                Complete();
+                inputBuffer.Complete();
+                outputBuffer.Complete();
             }
             catch(Exception e)
             {
-                Fault(e);
+                (inputBuffer as IDataflowBlock).Fault(e);
+                (outputBuffer as IDataflowBlock).Fault(e);
             }
         }
 
-        private async Task CompleteChannelIfNeededAsync()
+        private async Task CompleteInputAsync()
         {
-            if (!needChannelCompletion)
-            {
-                return;
-            }
+            await inputCompletionSource.Task;
 
             try
             {
-                await Completion;
+                await inputBuffer.Completion;
 
-                channel.Writer.TryComplete();
+                channel.Writer.Complete();
             }
             catch (Exception e)
             {
-                channel.Writer.TryComplete(e);
+                channel.Writer.Complete(e);
             }
         }
 
-        private async ValueTask CompleteReceivingAsync()
-        {
-            try
-            {
-                await sendingBuffer.Completion;
-
-                receivingBuffer.Complete();
-            }
-            catch (Exception e)
-            {
-                (receivingBuffer as IDataflowBlock).Fault(e);
-            }
-        }
-
-        private void StartAsyncActions(params Func<Task>[] asyncActions)
-        {
-            foreach(var action in asyncActions)
-            {
-                Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.None, taskScheduler);
-            }
-        }
-
-        private void DropSendingMessages()
-        {
-            sendingBuffer.LinkTo(DataflowBlock.NullTarget<Datagram>());
-        }
-
-        public Task Completion => Task.WhenAll(sendingBuffer.Completion, receivingBuffer.Completion);
+        public Task Completion => Task.WhenAll(inputBuffer.Completion, outputBuffer.Completion);
 
         public void Complete()
         {
-            sendingBuffer.Complete();
-            completionCancellationSource.Cancel();
+            inputBuffer.Complete();
         }
 
         public void Fault(Exception exception)
         {
-            (sendingBuffer as IDataflowBlock).Fault(exception);
-            completionCancellationSource.Cancel();
-            faultCancellationSource.Cancel();
+            (inputBuffer as IDataflowBlock).Fault(exception);
         }
 
-        public Datagram ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target, out bool messageConsumed)
+        public Try<Datagram> ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<Try<Datagram>> target, out bool messageConsumed)
         {
-            return (receivingBuffer as ISourceBlock<Datagram>).ConsumeMessage(messageHeader, target, out messageConsumed);
+            return (outputBuffer as ISourceBlock<Try<Datagram>>).ConsumeMessage(messageHeader, target, out messageConsumed);
         }
 
-        public IDisposable LinkTo(ITargetBlock<Datagram> target, DataflowLinkOptions linkOptions)
+        public IDisposable LinkTo(ITargetBlock<Try<Datagram>> target, DataflowLinkOptions linkOptions)
         {
-            return (receivingBuffer as ISourceBlock<Datagram>).LinkTo(target, linkOptions);
+            return (outputBuffer as ISourceBlock<Try<Datagram>>).LinkTo(target, linkOptions);
         }
 
-        public void ReleaseReservation(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target)
+        public void ReleaseReservation(DataflowMessageHeader messageHeader, ITargetBlock<Try<Datagram>> target)
         {
-            (receivingBuffer as ISourceBlock<Datagram>).ReleaseReservation(messageHeader, target);
+            (outputBuffer as ISourceBlock<Try<Datagram>>).ReleaseReservation(messageHeader, target);
         }
 
-        public bool ReserveMessage(DataflowMessageHeader messageHeader, ITargetBlock<Datagram> target)
+        public bool ReserveMessage(DataflowMessageHeader messageHeader, ITargetBlock<Try<Datagram>> target)
         {
-            return (receivingBuffer as ISourceBlock<Datagram>).ReserveMessage(messageHeader, target);
+            return (outputBuffer as ISourceBlock<Try<Datagram>>).ReserveMessage(messageHeader, target);
         }
 
-        public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, Datagram messageValue, ISourceBlock<Datagram> source, bool consumeToAccept)
+        public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, Try<Datagram> messageValue, ISourceBlock<Try<Datagram>> source, bool consumeToAccept)
         {
-            return (sendingBuffer as ITargetBlock<Datagram>).OfferMessage(messageHeader, messageValue, source, consumeToAccept);
+            return (inputBuffer as ITargetBlock<Try<Datagram>>).OfferMessage(messageHeader, messageValue, source, consumeToAccept);
         }
     }
 }

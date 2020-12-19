@@ -13,7 +13,7 @@ namespace Tests.UseCases
 {
     public class DatagrammerUsing
     {
-        [Fact(DisplayName = "simple starting and completion")]
+        [Fact(DisplayName = "simple starting and completion with channel way")]
         public async Task CaseOne()
         {
             var channel = DatagramChannel.Start(opt =>
@@ -29,22 +29,17 @@ namespace Tests.UseCases
         [Fact(DisplayName = "simple starting and completion with dataflow way")]
         public async Task CaseTwo()
         {
-            var channel = DatagramChannel.Start(opt =>
+            var dataflowBlock = DatagramBlock.Start(opt =>
             {
                 opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            });
-            var dataflowBlock = channel.ToDataflowBlock(opt =>
-            {
-                opt.CompleteChannel = true;
             });
 
             dataflowBlock.Complete();
 
             await dataflowBlock.Completion;
-            await channel.Reader.Completion;
         }
 
-        [Fact(DisplayName = "simple sending and receiving")]
+        [Fact(DisplayName = "simple sending and receiving with channel way")]
         public async Task CaseThree()
         {
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
@@ -60,14 +55,14 @@ namespace Tests.UseCases
 
             for (byte i = 0; i < 3; i++)
             {
-                await channel.Writer.WriteAsync(loopbackDatagram.WithBuffer(new byte[] { i, i, i }));
+                await channel.Writer.WriteAsync(loopbackDatagram.WithBuffer(new byte[] { i, i, i }).AsTry());
             }
 
             for (byte i = 0; i < 3; i++)
             {
                 var message = await channel.Reader.ReadAsync();
 
-                receivedBytes.Add(message.Buffer.ToArray());
+                receivedBytes.Add(message.Value.Buffer.ToArray());
             }
 
             channel.Writer.Complete();
@@ -89,32 +84,28 @@ namespace Tests.UseCases
             var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
             var receivedBytes = new List<byte[]>();
 
-            var channel = DatagramChannel.Start(opt =>
+            var dataflowBlock = DatagramBlock.Start(opt =>
             {
                 opt.ListeningPoint = loopbackEndPoint;
-            });
-            var dataflowBlock = channel.ToDataflowBlock(opt =>
-            {
                 opt.ReceivingBufferCapacity = 3;
                 opt.SendingBufferCapacity = 3;
             });
 
             for (byte i = 0; i < 3; i++)
             {
-                await dataflowBlock.SendAsync(loopbackDatagram.WithBuffer(new byte[] { i, i, i }));
+                await dataflowBlock.SendAsync(loopbackDatagram.WithBuffer(new byte[] { i, i, i }).AsTry());
             }
 
             for (byte i = 0; i < 3; i++)
             {
                 var message = await dataflowBlock.ReceiveAsync();
 
-                receivedBytes.Add(message.Buffer.ToArray());
+                receivedBytes.Add(message.Value.Buffer.ToArray());
             }
 
             dataflowBlock.Complete();
-            channel.Writer.Complete();
 
-            await Task.WhenAll(dataflowBlock.Completion, channel.Reader.Completion);
+            await dataflowBlock.Completion;
 
             receivedBytes.Should().BeEquivalentTo(new[]
             {
@@ -131,33 +122,28 @@ namespace Tests.UseCases
             var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
             var receivedBytes = new List<byte[]>();
 
-            var channel = DatagramChannel.Start(opt =>
+            var dataflowBlock = DatagramBlock.Start(opt =>
             {
                 opt.ListeningPoint = loopbackEndPoint;
             });
-            var dataflowBlock = channel.ToDataflowBlock();
             var observer = dataflowBlock.AsObserver();
 
             //It is more convenient with the Reactive Extensions using
             dataflowBlock.AsObservable().Subscribe(message =>
             {
-                receivedBytes.Add(message.Buffer.ToArray());
-            },
-            () =>
-            {
-                channel.Writer.Complete();
+                receivedBytes.Add(message.Value.Buffer.ToArray());
             });
 
             for (byte i = 0; i < 3; i++)
             {
-                observer.OnNext(loopbackDatagram.WithBuffer(new byte[] { i, i, i }));
+                observer.OnNext(loopbackDatagram.WithBuffer(new byte[] { i, i, i }).AsTry());
             }
 
             await Task.Delay(TimeSpan.FromSeconds(1));
 
             observer.OnCompleted();
 
-            await Task.WhenAll(dataflowBlock.Completion, channel.Reader.Completion);
+            await dataflowBlock.Completion;
 
             receivedBytes.Should().BeEquivalentTo(new[]
             {

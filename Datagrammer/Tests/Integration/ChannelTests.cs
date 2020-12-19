@@ -6,8 +6,6 @@ using Xunit;
 using FluentAssertions;
 using System.Collections.Generic;
 using System.Net.Sockets;
-using System.Threading;
-using System.Collections.Concurrent;
 using System.Linq;
 using Datagrammer.Channels;
 
@@ -54,81 +52,7 @@ namespace Tests.Integration
         }
 
         [Fact]
-        public void Cancel_IsCanceled()
-        {
-            //Arrange
-            var source = new CancellationTokenSource();
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-                opt.CancellationToken = source.Token;
-            });
-
-            //Act
-            source.Cancel();
-
-            //Assert
-            channel.Reader
-                .Awaiting(reader => reader.Completion)
-                .Should()
-                .Throw<OperationCanceledException>();
-        }
-
-        [Fact]
-        public async Task BindSocket_SocketIsAlreadyBound_DoNotBindIt()
-        {
-            //Arrange
-            var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-            var endPointToBind = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            var listeningEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-
-            //Act
-            socket.Bind(endPointToBind);
-
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.Socket = socket;
-                opt.ListeningPoint = listeningEndPoint;
-                opt.DisposeSocket = false;
-            });
-
-            channel.Writer.Complete();
-
-            await channel.Reader.Completion;
-
-            //Assert
-            socket.IsBound.Should().BeTrue();
-            socket.LocalEndPoint.As<IPEndPoint>().Address.MapToIPv4().Should().Be(endPointToBind.Address);
-            socket.LocalEndPoint.As<IPEndPoint>().Port.Should().Be(endPointToBind.Port);
-        }
-
-        [Fact]
-        public async Task BindSocket_SocketIsNotBound_BindIt()
-        {
-            //Arrange
-            var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-            var listeningEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-
-            //Act
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.Socket = socket;
-                opt.ListeningPoint = listeningEndPoint;
-                opt.DisposeSocket = false;
-            });
-
-            channel.Writer.Complete();
-
-            await channel.Reader.Completion;
-
-            //Assert
-            socket.IsBound.Should().BeTrue();
-            socket.LocalEndPoint.As<IPEndPoint>().Address.MapToIPv4().Should().Be(listeningEndPoint.Address);
-            socket.LocalEndPoint.As<IPEndPoint>().Port.Should().Be(listeningEndPoint.Port);
-        }
-
-        [Fact]
-        public async Task DisposeSocket_ItIsNotNeededToDisposeSocket_SocketIsNotDisposed()
+        public async Task Complete_SocketIsDisposedAfterCompletion()
         {
             //Arrange
             var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
@@ -136,31 +60,6 @@ namespace Tests.Integration
             {
                 opt.Socket = socket;
                 opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-                opt.DisposeSocket = false;
-            });
-
-            //Act
-            channel.Writer.Complete();
-
-            await channel.Reader.Completion;
-
-            //Assert
-            socket
-                .Invoking(s => s.LocalEndPoint)
-                .Should()
-                .NotThrow();
-        }
-
-        [Fact]
-        public async Task DisposeSocket_ItIsNeededToDisposeSocket_SocketIsDisposed()
-        {
-            //Arrange
-            var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-            var channel = DatagramChannel.Start(opt =>
-            {
-                opt.Socket = socket;
-                opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-                opt.DisposeSocket = true;
             });
 
             //Act
@@ -176,20 +75,26 @@ namespace Tests.Integration
         }
 
         [Fact]
-        public void Start_SocketIsAlreadyDisposed_ErrorWhileStarting()
+        public async Task DisposeSocketAfterStart_CompleteWithError()
         {
             //Arrange
             var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-
-            //Act
-            socket.Dispose();
-
-            //Assert
-            Assert.Throws<ObjectDisposedException>(() => DatagramChannel.Start(opt =>
+            var channel = DatagramChannel.Start(opt =>
             {
                 opt.Socket = socket;
                 opt.ListeningPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
-            }));
+            });
+
+            //Act
+            await Task.Delay(1000);
+
+            socket.Dispose();
+
+            //Assert
+            channel.Reader
+                .Awaiting(reader => reader.Completion)
+                .Should()
+                .Throw<SocketException>();
         }
 
         [Fact]
@@ -216,16 +121,16 @@ namespace Tests.Integration
             //Act
             foreach (var message in toSendMessages)
             {
-                await channel.Writer.WriteAsync(message);
+                await channel.Writer.WriteAsync(new Try<Datagram>(message));
             }
 
             await Task.Delay(1000);
 
             channel.Writer.Complete();
 
-            await foreach(var message in channel.Reader.ReadAllAsync())
+            await foreach (var message in channel.Reader.ReadAllAsync())
             {
-                receivedMessages.Add(message);
+                receivedMessages.Add(message.Value);
             }
 
             //Assert
@@ -263,16 +168,16 @@ namespace Tests.Integration
             //Act
             foreach (var message in toSendMessages)
             {
-                await channel.Writer.WriteAsync(message);
+                await channel.Writer.WriteAsync(new Try<Datagram>(message));
             }
 
             await Task.Delay(1000);
 
             channel.Writer.Complete(new ApplicationException());
 
-            while(channel.Reader.TryRead(out var message))
+            while (channel.Reader.TryRead(out var message))
             {
-                receivedMessages.Add(message);
+                receivedMessages.Add(message.Value);
             }
 
             //Assert
@@ -297,26 +202,27 @@ namespace Tests.Integration
                 new Datagram(new byte[100000], loopbackEndPoint.Address.GetAddressBytes(), loopbackEndPoint.Port),
                 new Datagram(new byte[] { 1, 2, 3 }, new byte[1000], 50000)
             };
-            var socketErrors = new ConcurrentBag<SocketException>();
+            var receivedMessages = new List<Try<Datagram>>();
             var channel = DatagramChannel.Start(opt =>
             {
                 opt.ListeningPoint = loopbackEndPoint;
-                opt.DisposeSocket = false;
-                opt.ErrorHandler = (e) =>
-                {
-                    socketErrors.Add(e);
-
-                    return Task.CompletedTask;
-                };
+                opt.ReceivingBufferCapacity = 3;
             });
 
             //Act
             foreach (var message in toSendMessages)
             {
-                await channel.Writer.WriteAsync(message);
+                await channel.Writer.WriteAsync(new Try<Datagram>(message));
             }
 
+            await Task.Delay(1000);
+
             channel.Writer.Complete();
+
+            while (channel.Reader.TryRead(out var message))
+            {
+                receivedMessages.Add(message);
+            }
 
             //Assert
             channel.Reader
@@ -324,33 +230,33 @@ namespace Tests.Integration
                 .Should()
                 .NotThrow();
 
-            socketErrors
+            receivedMessages
                 .Should()
-                .HaveCountGreaterOrEqualTo(3);
+                .HaveCount(3)
+                .And
+                .OnlyContain(message => message.IsException());
         }
 
         [Fact]
-        public async Task CancelWhileSending_SuccessfulCancellation()
+        public async Task ErrorWhileSending_CompletionWithError()
         {
             //Arrange
             var loopbackEndPoint = new IPEndPoint(IPAddress.Loopback, TestPort.GetNext());
             var loopbackDatagram = new Datagram().WithEndPoint(loopbackEndPoint);
-            var cancellationSource = new CancellationTokenSource();
             var channel = DatagramChannel.Start(opt =>
             {
                 opt.ListeningPoint = loopbackEndPoint;
                 opt.SendingBufferCapacity = 10;
                 opt.ReceivingBufferCapacity = 10;
-                opt.CancellationToken = cancellationSource.Token;
             });
 
             //Act
             for (int i = 0; i < 15; i++)
             {
-                await channel.Writer.WriteAsync(loopbackDatagram.WithBuffer(BitConverter.GetBytes(i)));
+                await channel.Writer.WriteAsync(new Try<Datagram>(loopbackDatagram.WithBuffer(BitConverter.GetBytes(i))));
             }
 
-            cancellationSource.Cancel();
+            channel.Writer.Complete(new OperationCanceledException());
 
             while (!channel.Reader.Completion.IsCompleted)
             {
