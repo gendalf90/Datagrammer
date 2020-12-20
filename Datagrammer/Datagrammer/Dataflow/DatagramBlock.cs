@@ -197,6 +197,7 @@ namespace Datagrammer.Dataflow
         public void Fault(Exception exception)
         {
             (inputBuffer as IDataflowBlock).Fault(exception);
+            (outputBuffer as IDataflowBlock).Fault(exception);
         }
 
         public Try<Datagram> ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<Try<Datagram>> target, out bool messageConsumed)
