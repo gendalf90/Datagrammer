@@ -1,18 +1,9 @@
-﻿using System.Net;
-using System.Net.Sockets;
-using System.Threading.Channels;
-using System.Threading.Tasks;
+﻿using System.Threading.Channels;
 
 namespace Datagrammer.Channels
 {
     public sealed class DatagramChannelOptions
     {
-        public Socket Socket { get; set; }
-
-        public EndPoint ListeningPoint { get; set; }
-
-        public TaskScheduler TaskScheduler { get; set; }
-
         public int? SendingBufferCapacity { get; set; }
 
         public BoundedChannelFullMode? SendingFullMode { get; set; }

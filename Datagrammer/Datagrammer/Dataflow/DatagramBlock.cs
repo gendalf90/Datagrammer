@@ -2,40 +2,39 @@
 using System;
 using System.Net.Sockets;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
 namespace Datagrammer.Dataflow
 {
-    public sealed class DatagramBlock : IPropagatorBlock<Try<Datagram>, Try<Datagram>>
+    internal sealed class DatagramBlock : IPropagatorBlock<Try<Datagram>, Try<Datagram>>
     {
         private readonly TaskFactory taskFactory;
         private readonly BufferBlock<Try<Datagram>> inputBuffer;
         private readonly BufferBlock<Try<Datagram>> outputBuffer;
-        private readonly Action<DatagramChannelOptions> channelConfiguration;
+        private readonly DatagramChannel channel;
         private readonly TaskCompletionSource inputCompletionSource;
         private readonly TaskCompletionSource outputCompletionSource;
 
-        private Channel<Try<Datagram>> channel;
-
-        private DatagramBlock(DatagramBlockOptions options)
+        public DatagramBlock(IDatagramSocket socket, DatagramBlockOptions options)
         {
-            if(options == null)
+            if (socket == null)
+            {
+                throw new ArgumentNullException(nameof(socket));
+            }
+
+            if (options == null)
             {
                 throw new ArgumentNullException(nameof(options));
             }
 
             taskFactory = new TaskFactory(options.TaskScheduler ?? TaskScheduler.Default);
 
-            channelConfiguration = opt =>
+            channel = new DatagramChannel(socket, new DatagramChannelOptions
             {
-                opt.ListeningPoint = options.ListeningPoint;
-                opt.Socket = options.Socket;
-                opt.TaskScheduler = options.TaskScheduler;
-                opt.SingleReader = true;
-                opt.SingleWriter = true;
-            };
+                SingleReader = true,
+                SingleWriter = true
+            });
 
             inputBuffer = new BufferBlock<Try<Datagram>>(new DataflowBlockOptions
             {
@@ -57,23 +56,9 @@ namespace Datagrammer.Dataflow
             outputCompletionSource = new TaskCompletionSource();
         }
 
-        public static DatagramBlock Start(Action<DatagramBlockOptions> configuration = null)
+        public void Start()
         {
-            var options = new DatagramBlockOptions();
-
-            configuration?.Invoke(options);
-
-            var datagramBlock = new DatagramBlock(options);
-
-            datagramBlock.Start();
-
-            return datagramBlock;
-        }
-
-        private void Start()
-        {
-            channel = DatagramChannel.Start(channelConfiguration);
-
+            taskFactory.StartNew(channel.Start);
             taskFactory.StartNew(StartMessageInputAsync);
             taskFactory.StartNew(StartMessageOutputAsync);
             taskFactory.StartNew(CompleteByChannelAsync);
@@ -88,20 +73,13 @@ namespace Datagrammer.Dataflow
                 {
                     while (inputBuffer.TryReceive(out var message))
                     {
-                        try
+                        if (message.IsException())
                         {
-                            if (message.IsException())
-                            {
-                                await WriteMessageAsync(message);
-                            }
-                            else
-                            {
-                                await SendMessageAsync(message);
-                            }
+                            await WriteMessageAsync(message);
                         }
-                        catch
+                        else
                         {
-                            continue;
+                            await SendMessageAsync(message);
                         }
                     }
                 }
