@@ -32,7 +32,7 @@ namespace Datagrammer
 
         public static Datagram WithPort(this Datagram datagram, int port)
         {
-            if(port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort)
+            if(!IsValidPort(port))
             {
                 throw new ArgumentOutOfRangeException(nameof(port));
             }
@@ -45,14 +45,57 @@ namespace Datagrammer
             return new IPEndPoint(new IPAddress(datagram.Address.Span), datagram.Port);
         }
 
+        public static bool TryGetEndPoint(this Datagram datagram, out IPEndPoint endPoint)
+        {
+            endPoint = null;
+
+            if (!IsValidIPAddressBytes(datagram.Address) || !IsValidPort(datagram.Port))
+            {
+                return false;
+            }
+
+            endPoint = datagram.GetEndPoint();
+
+            return true;
+        }
+
         public static IPAddress GetAddress(this Datagram datagram)
         {
             return new IPAddress(datagram.Address.Span);
         }
 
+        public static bool TryGetAddress(this Datagram datagram, out IPAddress address)
+        {
+            address = null;
+
+            if (!IsValidIPAddressBytes(datagram.Address))
+            {
+                return false;
+            }
+
+            address = datagram.GetAddress();
+
+            return true;
+        }
+
+        public static bool IsEndPointEmpty(this Datagram datagram)
+        {
+            return datagram.Address.IsEmpty && datagram.Port == 0;
+        }
+
         public static Try<Datagram> AsTry(this Datagram datagram)
         {
             return new Try<Datagram>(datagram);
+        }
+
+        private static bool IsValidPort(int port)
+        {
+            return port >= IPEndPoint.MinPort && port <= IPEndPoint.MaxPort;
+        }
+
+        private static bool IsValidIPAddressBytes(ReadOnlyMemory<byte> bytes)
+        {
+            return bytes.Length == 4 || bytes.Length == 16;
         }
     }
 }

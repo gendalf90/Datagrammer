@@ -1,7 +1,6 @@
 ﻿using Datagrammer.AsyncEnumerables;
 using System;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -10,14 +9,14 @@ namespace Datagrammer.Channels
 {
     internal sealed class DatagramChannel : Channel<Try<Datagram>>
     {
-        private readonly IDatagramSocket socket;
+        private readonly Socket socket;
         private readonly Channel<Try<Datagram>> inputChannel;
         private readonly Channel<Try<Datagram>> outputChannel;
         private readonly TaskCompletionSource inputCompletionSource;
         private readonly TaskCompletionSource outputCompletionSource;
         private readonly CancellationTokenSource outputCancellationSource;
 
-        public DatagramChannel(IDatagramSocket socket, DatagramChannelOptions options)
+        public DatagramChannel(Socket socket, DatagramChannelOptions options)
         {
             if(socket == null)
             {
@@ -102,7 +101,7 @@ namespace Datagrammer.Channels
         private Datagram GetDatagram(AsyncEnumeratorContext context)
         {
             return new Datagram(
-                context.Buffer.ToArray(), 
+                context.Buffer.AsMemory(context.Offset, context.Length).ToArray(), 
                 context.EndPoint.Address.GetAddressBytes(), 
                 context.EndPoint.Port);
         }
@@ -120,11 +119,13 @@ namespace Datagrammer.Channels
 
                     await foreach (var datagram in inputChannel.Reader.ReadAllAsync())
                     {
-                        if (datagram.IsException())
+                        var result = TrySetContext(datagram, context);
+
+                        if (result.IsException())
                         {
-                            await WriteToOutputAsync(datagram);
+                            await WriteToOutputAsync(result);
                         }
-                        else if (await TrySetContextAsync(datagram, context))
+                        else
                         {
                             break;
                         }
@@ -165,11 +166,9 @@ namespace Datagrammer.Channels
 
         private async ValueTask WriteUnsentAsync(Try<Datagram> datagram)
         {
-            var error = new SocketException((int)SocketError.OperationAborted);
+            var exception = CreateSocketException(SocketError.OperationAborted, datagram.Value);
 
-            error.Data["Datagram"] = datagram.Value;
-
-            await WriteToOutputAsync(new Try<Datagram>(error));
+            await WriteToOutputAsync(new Try<Datagram>(exception));
         }
 
         private ValueTask WriteToOutputAsync(Try<Datagram> datagram)
@@ -177,39 +176,37 @@ namespace Datagrammer.Channels
             return outputChannel.Writer.WriteAsync(datagram);
         }
 
-        private async ValueTask<bool> TrySetContextAsync(Try<Datagram> datagram, AsyncEnumeratorContext context)
+        private Try<Datagram> TrySetContext(Try<Datagram> datagram, AsyncEnumeratorContext context)
         {
-            try
+            if (datagram.IsException())
             {
-                SetContext(datagram, context);
-
-                return true;
+                return datagram;
             }
-            catch (SocketException e)
+
+            if (!datagram.Value.TryGetEndPoint(out var endPoint) && !datagram.Value.IsEndPointEmpty())
             {
-                await WriteToOutputAsync(new Try<Datagram>(e));
-
-                return false;
+                return new Try<Datagram>(CreateSocketException(SocketError.AddressNotAvailable, datagram.Value));
             }
+
+            context.EndPoint = endPoint;
+
+            if (!datagram.Value.Buffer.TryCopyTo(context.Buffer))
+            {
+                return new Try<Datagram>(CreateSocketException(SocketError.MessageSize, datagram.Value));
+            }
+
+            context.Length = datagram.Value.Buffer.Length;
+
+            return datagram;
         }
 
-        private void SetContext(Try<Datagram> datagram, AsyncEnumeratorContext context)
+        private SocketException CreateSocketException(SocketError error, Datagram datagram)
         {
-            try
-            {
-                context.EndPoint = datagram.Value.GetEndPoint();
-            }
-            catch
-            {
-                throw new SocketException((int)SocketError.AddressNotAvailable);
-            }
+            var result = new SocketException((int)error);
 
-            if (datagram.Value.Buffer.Length > DatagramBuffer.MaxSize)
-            {
-                throw new SocketException((int)SocketError.MessageSize);
-            }
+            result.Data["Datagram"] = datagram;
 
-            context.Buffer = MemoryMarshal.AsMemory(datagram.Value.Buffer);
+            return result;
         }
 
         private async Task StartCompletionAsync()

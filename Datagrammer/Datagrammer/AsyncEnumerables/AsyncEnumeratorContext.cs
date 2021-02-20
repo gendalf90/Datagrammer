@@ -5,10 +5,14 @@ namespace Datagrammer.AsyncEnumerables
 {
     public sealed class AsyncEnumeratorContext
     {
-        public Memory<byte> Buffer { get; set; }
+        public byte[] Buffer { get; init; }
+
+        public int Offset { get; set; }
+
+        public int Length { get; set; }
 
         public IPEndPoint EndPoint { get; set; }
 
-        public Exception Error { get; set; }
+        public Exception Error { get; internal set; }
     }
 }

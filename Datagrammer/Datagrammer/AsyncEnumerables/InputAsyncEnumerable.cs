@@ -1,13 +1,14 @@
 ﻿using System.Collections.Generic;
+using System.Net.Sockets;
 using System.Threading;
 
 namespace Datagrammer.AsyncEnumerables
 {
     internal sealed class InputAsyncEnumerable : IAsyncEnumerable<AsyncEnumeratorContext>
     {
-        private readonly IDatagramSocket socket;
+        private readonly Socket socket;
 
-        public InputAsyncEnumerable(IDatagramSocket socket)
+        public InputAsyncEnumerable(Socket socket)
         {
             this.socket = socket;
         }

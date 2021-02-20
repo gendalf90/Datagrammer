@@ -33,9 +33,10 @@ namespace Tests
 
         public static async Task SendPacketsTo(int port, IEnumerable<byte[]> packets)
         {
-            var endPoint = new IPEndPoint(IPAddress.Loopback, port);
-            var client = new UdpClient(GetNextPort());
+            using var client = new UdpClient();
 
+            var endPoint = new IPEndPoint(IPAddress.Loopback, port);
+            
             foreach (var packet in packets)
             {
                 await Task.Delay(TimeSpan.FromSeconds(random.Value.NextDouble()));
@@ -46,12 +47,15 @@ namespace Tests
 
         public static async Task<IEnumerable<byte[]>> ReceivePacketsFrom(int port, int count)
         {
-            var client = new UdpClient(port);
+            using var client = new UdpClient(port);
+
             var packets = new byte[count][];
 
             for (int i = 0; i < count; i++)
             {
-               var result = await client.ReceiveAsync();
+                await Task.Delay(TimeSpan.FromSeconds(random.Value.NextDouble()));
+
+                var result = await client.ReceiveAsync();
 
                 packets[i] = result.Buffer;
             }

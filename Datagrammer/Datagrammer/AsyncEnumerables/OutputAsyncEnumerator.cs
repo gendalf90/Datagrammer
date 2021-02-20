@@ -9,32 +9,27 @@ namespace Datagrammer.AsyncEnumerables
 {
     internal sealed class OutputAsyncEnumerator : IAsyncEnumerator<AsyncEnumeratorContext>
     {
-        private static readonly IPAddress defaultReceiveAddress = IPAddress.Any;
-        private static readonly int defaultReceivePort = IPEndPoint.MinPort;
-
-        private readonly IDatagramSocket socket;
+        private readonly Socket socket;
         private readonly CancellationToken cancellationToken;
-        private readonly CancellationTokenRegistration cancellationTokenRegistration;
-        private readonly IPEndPoint defaultEndPoint;
-        private readonly AsyncEnumeratorContext data = new AsyncEnumeratorContext();
-        private readonly ValueTaskSource<SocketError> taskSource = new ValueTaskSource<SocketError>();
-        private readonly SocketAsyncEventArgs socketEventArgs = new SocketAsyncEventArgs();
-        private readonly object locker = new object();
+        private readonly AsyncEnumeratorContext context;
+        private readonly ValueTaskSource<SocketError> taskSource;
+        private readonly SocketAsyncEventArgs socketEventArgs;
 
         private bool hasResult;
 
-        public OutputAsyncEnumerator(IDatagramSocket socket, CancellationToken cancellationToken)
+        public OutputAsyncEnumerator(Socket socket, CancellationToken cancellationToken)
         {
             this.socket = socket;
             this.cancellationToken = cancellationToken;
 
-            socketEventArgs.InitializeBuffer();
-            defaultEndPoint = new IPEndPoint(defaultReceiveAddress, defaultReceivePort);
-            cancellationTokenRegistration = cancellationToken.Register(Cancel);
+            socketEventArgs = new SocketAsyncEventArgs();
+            socketEventArgs.SetBuffer();
             socketEventArgs.Completed += HandleResult;
+            context = new AsyncEnumeratorContext { Buffer = socketEventArgs.Buffer };
+            taskSource = new ValueTaskSource<SocketError>(cancellationToken);
         }
 
-        public AsyncEnumeratorContext Current => hasResult ? data : throw new ArgumentOutOfRangeException(nameof(Current));
+        public AsyncEnumeratorContext Current => hasResult ? context : throw new ArgumentOutOfRangeException(nameof(Current));
 
         public async ValueTask<bool> MoveNextAsync()
         {
@@ -42,14 +37,11 @@ namespace Datagrammer.AsyncEnumerables
             {
                 var useAsyncWaiting = false;
 
-                lock (locker)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
 
-                    InitializeRemoteEndPoint();
+                InitializeRemoteEndPoint();
 
-                    useAsyncWaiting = socket.ReceiveFromAsync(socketEventArgs);
-                }
+                useAsyncWaiting = socket.ReceiveFromAsync(socketEventArgs);
 
                 if (useAsyncWaiting)
                 {
@@ -80,45 +72,46 @@ namespace Datagrammer.AsyncEnumerables
         {
             if (args.SocketError == SocketError.Success)
             {
-                taskSource.SetResult(args.SocketError);
-            }
-            else if (args.SocketError == SocketError.OperationAborted && cancellationToken.IsCancellationRequested)
-            {
-                taskSource.SetException(new OperationCanceledException(cancellationToken));
+                taskSource.TrySetResult(args.SocketError);
             }
             else
             {
-                taskSource.SetException(new SocketException((int)args.SocketError));
-            }
-        }
-
-        private void Cancel()
-        {
-            lock (locker)
-            {
-                socketEventArgs.Dispose();
+                taskSource.TrySetException(new SocketException((int)args.SocketError));
             }
         }
 
         private void InitializeRemoteEndPoint()
         {
-            defaultEndPoint.Address = defaultReceiveAddress;
-            defaultEndPoint.Port = defaultReceivePort;
+            var receiveAddress = socket.AddressFamily == AddressFamily.InterNetwork
+                ? IPAddress.Any
+                : IPAddress.IPv6Any;
+            var receivePort = IPEndPoint.MinPort;
+            var receiveEndPoint = socketEventArgs.RemoteEndPoint as IPEndPoint;
 
-            socketEventArgs.RemoteEndPoint = defaultEndPoint;
+            if (receiveEndPoint == null)
+            {
+                socketEventArgs.RemoteEndPoint = new IPEndPoint(receiveAddress, receivePort);
+            }
+            else
+            {
+                receiveEndPoint.Address = receiveAddress;
+                receiveEndPoint.Port = receivePort;
+            }
         }
 
         private void FillContext(Exception e = null)
         {
-            data.EndPoint = (IPEndPoint)socketEventArgs.RemoteEndPoint;
-            data.Buffer = socketEventArgs.MemoryBuffer.Slice(0, socketEventArgs.BytesTransferred);
-            data.Error = e;
+            context.EndPoint = (IPEndPoint)socketEventArgs.RemoteEndPoint;
+            context.Offset = 0;
+            context.Length = socketEventArgs.BytesTransferred;
+            context.Error = e;
         }
 
         public async ValueTask DisposeAsync()
         {
-            await cancellationTokenRegistration.DisposeAsync();
             socketEventArgs.Dispose();
+
+            await taskSource.DisposeAsync();
 
             hasResult = false;
         }

@@ -21,8 +21,4 @@
     <ProjectReference Include="..\Datagrammer\Datagrammer.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Unit\" />
-  </ItemGroup>
-
 </Project>

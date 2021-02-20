@@ -4,11 +4,17 @@ namespace Datagrammer
 {
     public readonly struct Datagram : IEquatable<Datagram>
     {
+        public const int MaxSize = 0x10000;
+
         public Datagram(ReadOnlyMemory<byte> buffer, ReadOnlyMemory<byte> address, int port)
         {
             Buffer = buffer;
             Address = address;
             Port = port;
+        }
+
+        public Datagram(ReadOnlyMemory<byte> buffer) : this(buffer, ReadOnlyMemory<byte>.Empty, 0)
+        {
         }
 
         public ReadOnlyMemory<byte> Buffer { get; }

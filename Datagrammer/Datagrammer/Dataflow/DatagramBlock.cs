@@ -16,7 +16,7 @@ namespace Datagrammer.Dataflow
         private readonly TaskCompletionSource inputCompletionSource;
         private readonly TaskCompletionSource outputCompletionSource;
 
-        public DatagramBlock(IDatagramSocket socket, DatagramBlockOptions options)
+        public DatagramBlock(Socket socket, DatagramBlockOptions options)
         {
             if (socket == null)
             {

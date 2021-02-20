@@ -1,13 +1,9 @@
 ﻿using Datagrammer;
-using Datagrammer.AsyncEnumerables;
 using FluentAssertions;
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Net.Sockets;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -16,36 +12,23 @@ namespace Tests.Integration
 {
     public class AsyncEnumerableTests
     {
-        private readonly Socket socket;
-        private readonly IPEndPoint listeningEndPoint;
-        private readonly IPEndPoint sendingEndPoint;
-        private readonly IAsyncEnumerable<AsyncEnumeratorContext> input;
-        private readonly IAsyncEnumerable<AsyncEnumeratorContext> output;
-
-        public AsyncEnumerableTests()
-        {
-            sendingEndPoint = new IPEndPoint(IPAddress.Loopback, TestNetwork.GetNextPort());
-            listeningEndPoint = new IPEndPoint(IPAddress.Any, TestNetwork.GetNextPort());
-            socket = DatagramSocket
-                .Create()
-                .Listen(listeningEndPoint);
-            input = socket.ToInputEnumerable();
-            output = socket.ToOutputEnumerable();
-        }
-
         [Fact]
         public async Task ReceivePackets()
         {
             //Arrange
             var packets = TestNetwork.GeneratePackets(10);
             var results = new BlockingCollection<byte[]>(10);
+            using var socket = DatagramSocketFactory.Create();
+            var port = TestNetwork.GetNextPort();
 
             //Act
+            socket.Bind(new IPEndPoint(IPAddress.Any, port));
+
             var receivingTask = Task.Run(async () =>
             {
-                await foreach (var context in output)
+                await foreach (var context in socket.ToOutputEnumerable())
                 {
-                    results.Add(context.Buffer.ToArray());
+                    results.Add(context.Buffer.AsMemory(context.Offset, context.Length).ToArray());
 
                     if (results.Count == results.BoundedCapacity)
                     {
@@ -54,12 +37,45 @@ namespace Tests.Integration
                 }
             });
 
-            var sendingTask = TestNetwork.SendPacketsTo(listeningEndPoint.Port, packets);
+            var sendingTask = TestNetwork.SendPacketsTo(port, packets);
 
             await Task.WhenAll(receivingTask, sendingTask);
 
             //Assert
             results.Should().BeEquivalentTo(packets);
+        }
+
+        [Fact]
+        public async Task ReceivePackets_WithCancellation()
+        {
+            //Arrange
+            var packets = TestNetwork.GeneratePackets(1);
+            var results = new BlockingCollection<byte[]>(1);
+            using var socket = DatagramSocketFactory.Create();
+            var port = TestNetwork.GetNextPort();
+            var cancellationSource = new CancellationTokenSource();
+            var random = new Random();
+
+            //Act
+            socket.Bind(new IPEndPoint(IPAddress.Any, port));
+
+            var receivingTask = Task.Run(async () =>
+            {
+                await foreach (var context in socket.ToOutputEnumerable().WithCancellation(cancellationSource.Token))
+                {
+                    results.Add(context.Buffer.AsMemory(context.Offset, context.Length).ToArray());
+
+                    if (results.Count == results.BoundedCapacity)
+                    {
+                        cancellationSource.CancelAfter(TimeSpan.FromSeconds(random.NextDouble()));
+                    }
+                }
+            });
+
+            await TestNetwork.SendPacketsTo(port, packets);
+
+            //Assert
+            await Assert.ThrowsAsync<OperationCanceledException>(() => receivingTask);
         }
     }
 }

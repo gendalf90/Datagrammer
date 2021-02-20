@@ -8,34 +8,33 @@ namespace Datagrammer.AsyncEnumerables
 {
     internal sealed class InputAsyncEnumerator : IAsyncEnumerator<AsyncEnumeratorContext>
     {
-        private readonly IDatagramSocket socket;
+        private readonly Socket socket;
         private readonly CancellationToken cancellationToken;
-        private readonly CancellationTokenRegistration cancellationTokenRegistration;
-        private readonly Memory<byte> defaultBuffer;
-        private readonly AsyncEnumeratorContext data = new AsyncEnumeratorContext();
-        private readonly ValueTaskSource<SocketError> taskSource = new ValueTaskSource<SocketError>();
-        private readonly SocketAsyncEventArgs socketEventArgs = new SocketAsyncEventArgs();
-        private readonly object locker = new object();
+        private readonly AsyncEnumeratorContext context;
+        private readonly ValueTaskSource<SocketError> taskSource;
+        private readonly SocketAsyncEventArgs socketEventArgs;
 
         private bool hasResult;
 
-        public InputAsyncEnumerator(IDatagramSocket socket, CancellationToken cancellationToken)
+        public InputAsyncEnumerator(Socket socket, CancellationToken cancellationToken)
         {
             this.socket = socket;
             this.cancellationToken = cancellationToken;
 
-            defaultBuffer = socketEventArgs.InitializeBuffer();
-            cancellationTokenRegistration = cancellationToken.Register(Cancel);
+            socketEventArgs = new SocketAsyncEventArgs();
+            socketEventArgs.SetBuffer();
             socketEventArgs.Completed += HandleResult;
+            context = new AsyncEnumeratorContext { Buffer = socketEventArgs.Buffer };
+            taskSource = new ValueTaskSource<SocketError>(cancellationToken);
         }
 
-        public AsyncEnumeratorContext Current => hasResult ? data : throw new ArgumentOutOfRangeException(nameof(Current));
+        public AsyncEnumeratorContext Current => hasResult ? context : throw new ArgumentOutOfRangeException(nameof(Current));
 
         public async ValueTask<bool> MoveNextAsync()
         {
             if (!hasResult)
             {
-                InitializeContext();
+                cancellationToken.ThrowIfCancellationRequested();
 
                 hasResult = true;
 
@@ -46,14 +45,11 @@ namespace Datagrammer.AsyncEnumerables
             {
                 var useAsyncWaiting = false;
 
-                lock (locker)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
 
-                    SetContext();
+                SetContext();
 
-                    useAsyncWaiting = socket.SendToAsync(socketEventArgs);
-                }
+                useAsyncWaiting = SendAsync();
 
                 if (useAsyncWaiting)
                 {
@@ -64,11 +60,11 @@ namespace Datagrammer.AsyncEnumerables
                     socketEventArgs.ThrowIfNotSuccess();
                 }
 
-                InitializeContext();
+                SetSuccess();
             }
             catch (SocketException e)
             {
-                InitializeContext(e);
+                SetError(e);
             }
             finally
             {
@@ -84,54 +80,42 @@ namespace Datagrammer.AsyncEnumerables
         {
             if (args.SocketError == SocketError.Success)
             {
-                taskSource.SetResult(args.SocketError);
-            }
-            else if (args.SocketError == SocketError.OperationAborted && cancellationToken.IsCancellationRequested)
-            {
-                taskSource.SetException(new OperationCanceledException(cancellationToken));
+                taskSource.TrySetResult(args.SocketError);
             }
             else
             {
-                taskSource.SetException(new SocketException((int)args.SocketError));
+                taskSource.TrySetException(new SocketException((int)args.SocketError));
             }
         }
 
-        private void InitializeContext(Exception e = null)
+        private bool SendAsync()
         {
-            data.EndPoint = null;
-            data.Buffer = defaultBuffer;
-            data.Error = e;
+            return socketEventArgs.RemoteEndPoint == null
+                ? socket.SendAsync(socketEventArgs)
+                : socket.SendToAsync(socketEventArgs);
+        }
+
+        private void SetSuccess()
+        {
+            context.Error = null;
+        }
+
+        private void SetError(Exception e)
+        {
+            context.Error = e;
         }
 
         private void SetContext()
         {
-            if (data.EndPoint == null)
-            {
-                throw new SocketException((int)SocketError.AddressNotAvailable);
-            }
-
-            socketEventArgs.RemoteEndPoint = data.EndPoint;
-
-            if (data.Buffer.Length > DatagramBuffer.MaxSize)
-            {
-                throw new SocketException((int)SocketError.MessageSize);
-            }
-
-            socketEventArgs.SetBuffer(data.Buffer);
-        }
-
-        private void Cancel()
-        {
-            lock (locker)
-            {
-                socketEventArgs.Dispose();
-            }
+            socketEventArgs.RemoteEndPoint = context.EndPoint;
+            socketEventArgs.SetBuffer(context.Offset, context.Length);
         }
 
         public async ValueTask DisposeAsync()
         {
-            await cancellationTokenRegistration.DisposeAsync();
             socketEventArgs.Dispose();
+
+            await taskSource.DisposeAsync();
 
             hasResult = false;
         }
